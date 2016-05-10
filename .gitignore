@@ -1,0 +1,5 @@
+**.conf
+**.python3.4.core
+.**.swp
+**.pyc
+__pycache__/**

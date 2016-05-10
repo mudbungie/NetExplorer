@@ -1,0 +1,35 @@
+Metadata-Version: 1.1
+Name: bulbs
+Version: 0.3.29-20140417
+Summary: A Python persistence framework for graph databases that connects to Neo4j Server, Rexster, OrientDB, Lightsocket.
+Home-page: https://github.com/espeed/bulbs
+Author: James Thornton
+Author-email: james@jamesthornton.com
+License: BSD
+Description: 
+        Bulbs
+        -----
+        
+        Bulbs is a Python persistence framework for graph databases that 
+        connects to Neo4j Server, Rexster, OrientDB, Lightsocket, and more.
+        
+        
+Keywords: graph database DB persistence framework rexster gremlin cypher neo4j orientdb
+Platform: any
+Classifier: Programming Language :: Python
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3.0
+Classifier: Programming Language :: Python :: 3.1
+Classifier: Programming Language :: Python :: 3.2
+Classifier: Programming Language :: Python :: 2.7
+Classifier: Programming Language :: Python :: 2.6
+Classifier: Development Status :: 3 - Alpha
+Classifier: Environment :: Web Environment
+Classifier: Intended Audience :: Developers
+Classifier: License :: OSI Approved :: BSD License
+Classifier: Operating System :: OS Independent
+Classifier: Topic :: Database
+Classifier: Topic :: Database :: Front-Ends
+Classifier: Topic :: Internet :: WWW/HTTP
+Classifier: Topic :: Software Development :: Libraries :: Python Modules
+Classifier: Topic :: System :: Distributed Computing
