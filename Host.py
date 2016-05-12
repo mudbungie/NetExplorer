@@ -19,7 +19,7 @@ class Host:
         # A host needs at least an IP address.
         # Which I'll pass two a string subclass for validation.
         self.ip = Ip(ip)
-        self.interfaces = {}
+        self.interfaces = [Interface(ip=self.ip)]
         self.community = None
     
     def __str__(self):
@@ -52,6 +52,7 @@ class Host:
         else:
             responses = False
             for community in config['network']['communities']:
+                print(community)
                 responses = scan(community)
                 if responses:
                     # Save that for later, so we don't have to guess.
@@ -218,14 +219,11 @@ class Host:
                 try:
                     # Validation occurs in the decoding, just move on if they
                     # throw assertion errors.
-                    mac = Mac(response.value, encoding='utf-16')
-                    ip = Ip(response.oid_index, encoding='snmp')
-                    #print('MAC: ' + str(mac) + ' IP: ' + str(ip))
                     values = {}
-                    values['mac'] = str(mac)
-                    values['ip'] = str(ip)
+                    values['mac'] = Mac(response.value, encoding='utf-16')
+                    values['ip'] = Ip(response.oid_index, encoding='snmp')
                     # We also want to know where the ARP record came from.
-                    values['source'] = str(self.ip)
+                    values['source'] = self.ip
                     # We ignore data points that have to do with locally 
                     # administered MAC addresses.
                     localMacs = ['2', '6', 'a', 'e']
