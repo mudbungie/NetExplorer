@@ -12,14 +12,11 @@ from requests.packages.urllib3.exceptions import InsecureRequestWarning
 requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
 
 class Host:
-    def __init__(self, ip):
-        self.hostinit(ip)
+    def __init__(self):
+        pass
 
-    def hostinit(self, ip):
-        # A host needs at least an IP address.
-        # Which I'll pass two a string subclass for validation.
-        self.ip = Ip(ip)
-        self.interfaces = [Interface(ip=self.ip)]
+    def hostinit(self):
+        self.interfaces = []
         self.community = None
     
     def __str__(self):
