@@ -16,4 +16,4 @@ def dbinit():
 
 if __name__ == '__main__':
     a = dbinit()
-    #print(a.nodes())
+    print(a.nodes())

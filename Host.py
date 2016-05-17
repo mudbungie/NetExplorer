@@ -157,13 +157,11 @@ class Host:
                     self.network.add_edge(ip, interface)
                     host = self.network.getUnique([interface], ntype=Host)
                     self.network.add_edge(host, interface)
-                    interface = Interface()
+                    interface = Interface(self.network)
             except AssertionError:
                 # Malformed input is to be ignored.
                 print('malformed input:', response.value, response.oid_index)
-        else:
-            print('Connection failed with host at:', self.ip)
-        return arpTable
+        return True
 
     def scanInterfaces(self):
         # We scan the mib to mac addresses, which gives us indexing

@@ -54,7 +54,7 @@ class Network(nx.Graph):
 
     def addHostByIp(self, ip):
         # Validation
-        ip = Ip(self, ip)
+        ip = Ip(ip)
         interface = Interface(self)
         host = Host(self)
         self.add_node(ip)
