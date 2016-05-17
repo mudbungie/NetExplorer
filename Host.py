@@ -61,8 +61,8 @@ class Host:
                 except easysnmp.exceptions.EasySNMPTimeoutError:
                     # Either the community string is wrong, or the address is dead.
                     pass
-                print('scan failed with community',community,'on',ip)
-                return False
+            print('scan failed with community',community,'on',ip)
+            return False
         
         try:
             # If we've figured out the community string for this host, use it.
