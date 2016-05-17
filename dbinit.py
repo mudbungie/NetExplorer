@@ -9,7 +9,7 @@ def dbinit():
     yknet = Network()
     yknet.configure(config)
     yknet.addHostByIp(config['network']['router'])
-    yknet.arpCrawl()
+    #yknet.arpCrawl()
     yknet.arpCrawl()
 
     return yknet

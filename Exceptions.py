@@ -5,3 +5,6 @@ class InputError(Exception):
 
 class NonResponsiveError(Exception):
     pass
+
+class RedundantHostError(Exception):
+    pass

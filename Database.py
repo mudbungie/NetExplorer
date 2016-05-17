@@ -28,7 +28,7 @@ class Network(nx.Graph):
     def addHostByIp(self, ip):
         # Validation
         ip = Ip(ip)
-        interface = Interface(ip=ip)
+        interface = Interface(self, ip=ip)
         host = Host(self)
         self.add_node(ip)
         self.add_node(interface)
@@ -48,6 +48,8 @@ class Network(nx.Graph):
                 # Making sure it didn't come back empty.
                 for arp in arpTable:
                     print('arp:',arp)
+                    ip = arp['ip']
+                    mac = arp['mac']
                     # Then we add those nodes in.
                     self.add_nodes_from([ip, mac])
                     # Find out if either of them already have an interface.
@@ -56,13 +58,13 @@ class Network(nx.Graph):
                         self.findAdj(mac, ntype=Interface))
                     if len(interfaces) == 0:
                         # There is no interface, we have to add it.
-                        interface = Interface(ip=ip, mac=mac)
+                        interface = Interface(self, ip=ip, mac=mac)
                     elif len(interfaces) == 1:
                         # There is an interface already. Add the ip and mac
                         # in case they aren't already there.
-                        interface = interfaces[0]
-                        interface.ips.add(ip)
-                        interface.macs.add(mac)
+                        interface = interfaces.pop()
+                        self.add_edge(interface, ip)
+                        self.add_edge(interface, mac)
                     else:
                         # Should never happen.
                         raise RedundantInterfaceError('Redundant link ' +\
@@ -74,14 +76,15 @@ class Network(nx.Graph):
                     hosts = self.findAdj(interface, ntype=Host)
                     if len(hosts) == 0:
                         # No host, add it.
-                        host = Host()
+                        host = Host(self)
                         self.add_edge(host, interface)
                     elif len(hosts) == 1:
                         # Already there, just make sure that it's connected.
                         self.add_edge(host, interface)
                     else:
-                        raise RedundantHostError('Redundant host ' +\
-                            'associated with ' + ip + mac)
+                        #raise RedundantHostError('Redundant host ' +\
+                        #    'associated with ' + ip + mac)
+                        print('Redundant host:',ip,mac)
 
             except NonResponsiveError:
                 # The host is nonresponsive. Flag it.

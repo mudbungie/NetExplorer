@@ -195,8 +195,6 @@ class Host:
                     values = {}
                     values['mac'] = Mac(response.value, encoding='utf-16')
                     values['ip'] = Ip(response.oid_index, encoding='snmp')
-                    # We also want to know where the ARP record came from.
-                    values['source'] = self.ip
                     # We ignore data points that have to do with locally 
                     # administered MAC addresses.
                     localMacs = ['2', '6', 'a', 'e']
@@ -204,8 +202,6 @@ class Host:
                         ignored += 1
                     else:
                         arpTable.append(values)
-                        self.arpByMac[mac] = ip
-                        self.arpByIp[ip] = mac
                 except AssertionError:
                     # Malformed input is to be ignored.
                     errors += 1

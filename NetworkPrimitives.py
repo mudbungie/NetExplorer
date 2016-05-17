@@ -92,33 +92,32 @@ class Netmask(int):
             return super(Netmask, cls).__new__(cls, bits)
 
 class Interface:
-    def __init__(self, mac=None, ip=None):
+    def __init__(self, network, mac=None, ip=None):
+        self.network = network
+        self.network.add_node(self)
         if mac:
-            self.mac = Mac(mac)
+            self.network.add_edge(self, mac)
         if ip:
-            self.ip = Ip(ip)
+            self.network.add_edge(self, ip)
 
-    def __str__(self):
-        return self.mac.__str__()
-
-    # Publicly get-and-settable IP attribute with validation
     @property
-    def ip(self):
-        return self.__ip
-    @ip.setter
-    def ip(self, ip):
-        self.__ip = Ip(ip)
-    # Publicly get-and-settable label attribute
+    def ips(self):
+        return self.network.findAdj(self, ntype=Ip)
+
+    @property
+    def macs(self):
+        return self.network,findAdj(self, ntype=Mac)
+
     @property
     def label(self):
-        return self.__label
+        return self.network.node(self)['label']
     @label.setter
     def label(self, label):
-        self.__label = label
-    # Publicly get-and-settable speed attribute
+        self.network.node(self)['label'] = label
+
     @property
     def speed(self):
-        return self.__speed
+        return self.network.node(self)['speed']
     @speed.setter
     def speed(self, speed):
-        self.__speed = speed
+        self.network.node(self)['speed'] = speed
