@@ -1,8 +1,8 @@
 # Class for a network object. 
 
-from NetworkPrimitives import Ip, Mac
-from Interface import Interface
+from NetworkPrimitives import Ip, Mac, Interface
 from Config import config
+from Exceptions import *
 import easysnmp
 import requests
 import json
@@ -12,74 +12,82 @@ from requests.packages.urllib3.exceptions import InsecureRequestWarning
 requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
 
 class Host:
-    def __init__(self):
-        pass
+    def __init__(self, network):
+        self.network = network
 
-    def hostinit(self):
-        self.interfaces = []
-        self.community = None
-    
-    def __str__(self):
-        return self.ip
+    @property
+    def interfaces(self):
+        return self.network.findAdj(self, ntype=Interface)
 
-    def snmpInit(self, community):
-        session = easysnmp.Session(hostname=self.ip, community=community, version=1, timeout=0.5)
+    @property
+    def ips(self):
+        ips = []
+        for interface in self.interfaces:
+            ips += self.network.findAdj(interface, ntype=Ip)
+        return ips
+
+    @property
+    def macs(self):
+        macs = []
+        for interface in self.interfaces:
+            macs += self.network.findAdj(interface, ntype=Mac)
+        return macs
+
+    @property
+    def community(self):
+        return self.network.node[self]['community']
+    @community.setter
+    def community(self, community):
+        self.network.node[self]['community'] = community
+
+    def snmpInit(self, community, ip):
+        session = easysnmp.Session(hostname=ip, community=community, version=1, timeout=0.5)
         return session
 
     def snmpwalk(self, mib):
         # Walks specified mib
+        ips = self.ips
 
-        def scan(community):
-            session = self.snmpInit(community)
-            try:
-                responses = session.walk(mib)
-                return responses
-            except easysnmp.exceptions.EasySNMPNoSuchNameError:
-                # Probably means that you're hitting the wrong kind of device.
-                return False
-            except easysnmp.exceptions.EasySNMPTimeoutError:
-                # Either the community string is wrong, or the address is dead.
-                return False
-
-        # If we've figured out the community string for this host, use it.
-        if self.community:
-            responses = scan(community)
-            return responses
-        # Otherwise, guess until we make it.
-        else:
-            responses = False
-            for community in config['network']['communities']:
-                print(community)
-                responses = scan(community)
-                if responses:
-                    # Save that for later, so we don't have to guess.
+        def scan(communities, ip):
+            for community in communities:
+                session = self.snmpInit(community, ip)
+                try:
+                    responses = session.walk(mib)
                     self.community = community
                     return responses
-            # The host has rejected all community strings.
-            return False
-
-    # Set during init
-    @property
-    def interfaces(self):
-        return self.__interfaces
-    @interfaces.setter
-    def interfaces(self, interfaces):
-        self.__interfaces = interfaces
-
-    # This info is set mostly through zabbix data, though it can be derived
-    # from a properly configured host.
-    @property
-    def hostname(self):
-        return self.__hostname
-    @hostname.setter
-    def hostname(self, hostname):
-        self.__hostname = hostname
-    @property
-    def hostid(self):
-        return self.__hostname
-    @hostid.setter
-    def hostid(self, hostid):
-        self.__hostid = hostid
+                except easysnmp.exceptions.EasySNMPNoSuchNameError:
+                    # Probably means that you're hitting the wrong kind of device.
+                    raise
+                except easysnmp.exceptions.EasySNMPTimeoutError:
+                    # Either the community string is wrong, or the address is dead.
+                    pass
+                print('scan failed with community',community,'on',ip)
+                return False
+        
+        try:
+            # If we've figured out the community string for this host, use it.
+            # Typecasting as list, because unknown attempts iterate.
+            communities = [self.community]
+            for ip in ips:
+                responses = scan(communities, ip)
+                if responses:
+                    return responses
+                else:
+                    # Either the address is dead, or the host is offline.
+                    # Either way, the community string isn't to be trusted.
+                    self.community = None
+                    # And we'll try scanning with the network's list.
+        except KeyError:
+            pass
+        # We haven't figured that out, use the Network's list.
+        communities = self.network.communities
+        # We didn't make it with the previous community. 
+        for ip in ips:
+            responses = scan(communities, ip)
+            if responses:
+                return responses
+        # If we've got nothing at this point, something is wrong.
+        raise NonResponsiveError('No response for host at', ips)
 
     def getInterfaces(self):
         # Use SNMP to retrieve info about the interfaces.
@@ -164,43 +172,9 @@ class Host:
             return True
         #print('No match')
         return False
-
-    def hasBridge(self):
-        # Pull the interface list if it's not already done.
-        if len(self.interfaces) == 0:
-            #print(self.ip)
-            self.getInterfaces()
-            #print('finished scan')
-        # We'll be comparing different classes of interfaces.
-        ath = []
-        eth = []
-        br = []
-        for interface in self.interfaces:
-            # Split out the aths and eths.
-            if interface.label[0:3] == 'ath':
-                ath.append(interface.mac)
-            elif interface.label[0:3] == 'eth':
-                eth.append(interface.mac)
-            elif interface.label[0:2] == 'br':
-                br.append(interface.mac)
-        # Oddness for efficiency.
-        #print('ath',ath)
-        #print('eth',eth)
-        #print('br',br)
-        intersection = [mac for mac in ath if mac in set(eth + br)]
-        if len(intersection) > 0:
-            # If there are any matches, send the bridged MAC address.
-            #print('dupes')
-            self.bridge = intersection
-            return intersection[0]
-        else:
-            #print('nodupes')
-            self.isBridged = False
-            return False
-
+        
     def getArpTable(self):
         # A walk of the ARP table, gives list of dicts
-        print('Scanning ARP table for host at:', self.ip)
 
         # MIB for ARP tables
         mib = 'ipNetToMediaPhysAddress'
@@ -210,9 +184,11 @@ class Host:
         self.arpByIp = {}
         # Conditional, so that we don't error on empty responses
         if responses:
+            print('responses did happen')
             ignored = 0
             errors = 0
             for response in responses:
+                print(response)
                 try:
                     # Validation occurs in the decoding, just move on if they
                     # throw assertion errors.

@@ -2,3 +2,6 @@
 
 class InputError(Exception):
     pass
+
+class NonResponsiveError(Exception):
+    pass

@@ -1,32 +1,13 @@
 # Networkx-based graph database
 
 import networkx as nx
-from NetworkPrimitives import Mac, Ip, Netmask
+from NetworkPrimitives import Mac, Ip, Netmask, Interface
 from Host import Host
+from Exceptions import *
 
 class Network(nx.Graph):
-    def hosts(self):
-        hosts = [host for host in self.nodes if type(host) == Host]
-        return hosts
-    def ips(self):
-        ips = [ip for ip in self.nodes() if type(ip) == Ip]
-        return ips
-    def macs(self):
-        mac = [mac for mac in self.nodes() if type(mac) == Mac]
-
-    # If you need to get everything, just traverse it once.
-    def sortNetwork(self):
-        ips = []
-        macs = []
-        hosts = []
-        for node in nodes:
-            if type(node) == Ip:
-                ips.append(node)
-            elif type(node) == Mac:
-                macs.append(node)
-            elif type(node) == Host:
-                hosts.append(node)
-        return (ips, macs, hosts)
+    def configure(self, config):
+        self.communities = config['network']['communities']
 
     def findConnections(self, node, etype=None):
         # This seems like it should be a builtin, but whatever. 
@@ -44,21 +25,29 @@ class Network(nx.Graph):
             adj = [e[1] for e in edges if type(e[1]) == ntype]
         return adj
 
-    def 
+    def addHostByIp(self, ip):
+        # Validation
+        ip = Ip(ip)
+        interface = Interface(ip=ip)
+        host = Host(self)
+        self.add_node(ip)
+        self.add_node(interface)
+        self.add_node(host)
+        self.add_edge(ip, interface)
+        self.add_edge(interface, host)
 
     def arpCrawl(self):
         # Get existing nodes.
-        a = self.sortNetwork()
-        ips = a[0]
-        macs = a[1]
-        hosts = a[2]
+        hosts = [node for node in self.nodes() if type(node) == Host]
         for host in hosts:
+            print(host.ips)
             # Tries to scan each of the host's interfaces, until it gets a
             # non-empty table.
             try:
                 arpTable = host.getArpTable()
                 # Making sure it didn't come back empty.
                 for arp in arpTable:
+                    print('arp:',arp)
                     # Then we add those nodes in.
                     self.add_nodes_from([ip, mac])
                     # Find out if either of them already have an interface.
