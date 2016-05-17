@@ -20,7 +20,7 @@ class Mac(str):
         else:
             # Should never happen, means that an unsopported encoding was
             # specified.
-            raise Exception('Unsopported encoding ' + encoding)
+            raise Exception('Unsupported encoding ' + encoding)
 
         # Validate!
         macre = re.compile(r'([a-f0-9]{2}[:]?){6}')
@@ -28,7 +28,6 @@ class Mac(str):
             raise InputError('Not a MAC address:', macstr)
 
         return super(Mac, cls).__new__(cls, macstr)
-
 
 class Ip(str):
     def __new__(cls, address, encoding=None):
@@ -80,7 +79,7 @@ class Netmask(int):
             prevOctet = 255 # Used for actual value validation.
             for octet in a.octets():
                 if octet > prevOctet or (octet != 255 and octet % 2 == 1):
-                    print(octet, prevOctet, a, bits)
+                    #print(octet, prevOctet, a, bits)
                     raise ValueError('Valid IP address, but not netmask.')
                 prevOctet = octet
                 octet = 255 - octet
@@ -106,7 +105,7 @@ class Interface:
 
     @property
     def macs(self):
-        return self.network,findAdj(self, ntype=Mac)
+        return self.network.findAdj(self, ntype=Mac)
 
     @property
     def label(self):

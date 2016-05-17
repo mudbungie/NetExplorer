@@ -9,12 +9,11 @@ def dbinit():
     yknet = Network()
     yknet.configure(config)
     yknet.addHostByIp(config['network']['router'])
-    #yknet.arpCrawl()
+    yknet.arpCrawl()
     yknet.arpCrawl()
 
     return yknet
 
 if __name__ == '__main__':
-    print(config['network']['router'])
     a = dbinit()
-    print(a.nodes())
+    #print(a.nodes())
