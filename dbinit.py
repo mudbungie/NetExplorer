@@ -20,5 +20,8 @@ if __name__ == '__main__':
     a = dbinit()
     #print(a.nodes())
     for node in a.nodes():
-        a.printHost(node)
+        try:
+            node.print()
+        except AttributeError:
+            pass
 

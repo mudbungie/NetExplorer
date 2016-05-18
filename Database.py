@@ -78,14 +78,3 @@ class Network(nx.Graph):
                 # The host is nonresponsive. Flag it.
                 raise
 
-    def printHost(self, host):
-        print('Host:')
-        interfaces = self.findAdj(host, ntype=Interface)
-        for interface in interfaces:
-            ips = self.findAdj(interface, ntype=Ip)
-            macs = self.findAdj(interface, ntype=Mac)
-            print('\tInterface:')
-            for ip in ips:
-                print('\t\tIP:', ip)
-            for mac in macs:
-                print('\t\tMAC:', mac)

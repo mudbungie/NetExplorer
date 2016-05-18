@@ -237,4 +237,12 @@ class Host:
             self.online = False
             #print('OFF:', self.ip)
             return None
-    
+   
+    def print(self):
+        print('Host:')
+        for interface in self.interfaces:
+            print('\tInterface:')
+            for mac in interface.macs:
+                print('\t\tMAC:', mac)
+            for ip in interface.ips:
+                print('\t\tIP:', ip)
