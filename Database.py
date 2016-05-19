@@ -4,12 +4,18 @@ import networkx as nx
 from NetworkPrimitives import Mac, Ip, Netmask, Interface
 from Host import Host
 from Exceptions import *
-from datetime import datetime
-import time
 
 class Network(nx.Graph):
     def configure(self, config):
         self.communities = config['network']['communities']
+        self.macvendors = { 'f0:9f:c2':'ubiquity',
+                            'dc:9f:db':'ubiquity',
+                            '80:2a:a8':'ubiquity',
+                            '68:72:51':'ubiquity',
+                            '44:d9:e7':'ubiquity',
+                            '24:a4:3c':'ubiquity'.
+                            '':'ubiquity'.
+                            }
 
     def findConnections(self, node, etype=None, ntype=None):
         # This seems like it should be a builtin, but whatever. 
@@ -85,7 +91,6 @@ class Network(nx.Graph):
         # Let's just get typecasting out of the way.
         hosts = set(hosts)
         # Get existing hosts in the network.
-        #hosts = [node for node in self.nodes() if type(node) == Host]
         while len(hosts) > 0:
             # Sort the list so that the least recently updated is last.
             hostlist = sorted(hosts, key=lambda h: self.node[h]['updated'], 
@@ -95,9 +100,9 @@ class Network(nx.Graph):
             # Tries to scan each of the host's interfaces, until it gets a
             # non-empty table.
             try:
-                timestamp = time.mktime(datetime.now().timetuple())
-                self.node[host]['updated'] = timestamp
-                print('Scanning host: ', end='')
+                # Update the timestamp.
+                host.touch()
+                print('Scanning host: ')
                 host.scanHostname()
                 print(host.hostname)
                 print('Scanning interfaces...')

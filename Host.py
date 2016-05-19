@@ -7,6 +7,8 @@ import easysnmp
 import requests
 import json
 import time
+from datetime import datetime
+import time
 
 # Disable security warnings.
 from requests.packages.urllib3.exceptions import InsecureRequestWarning
@@ -18,7 +20,7 @@ class Host:
         # Set the timestamp for unix epoch, unless it was set during init.
         self.network.add_node(self)
         self.network.node[self]['updated'] = 0
-        self.community = []
+        self.community = None
 
     @property
     def interfaces(self):
@@ -55,6 +57,22 @@ class Host:
     def hostname(self, hostname):
         self.network.node[self]['hostname'] = hostname
 
+    @property
+    def updated(self):
+        return self.network.node[self]['updated']
+
+    @property
+    def vendor(self):
+        return self.network.node[self]['vendor']
+    @vendor.setter
+    def hostname(self, vendor)
+        self.network.node[self]['vendor'] = vendor
+
+    def touch(self):
+        # Update timestamp on host.
+        timestamp = time.mktime(datetime.now().timetuple())
+        self.network.node[self]['updated'] = timestamp
+
     def snmpInit(self, community, ip):
         session = easysnmp.Session(hostname=ip, community=community, version=1, timeout=0.5)
         return session
@@ -64,7 +82,10 @@ class Host:
         ips = self.ips
         # Get a list of communities, starting with any that are known to
         # work on this host.
-        communities = self.community + self.network.communities
+        communities = self.network.communities.copy()
+        if self.community:
+            communities.append(self.community)
+        communities.reverse()
 
         def scan(communities, ip):
             for community in communities:
@@ -72,59 +93,66 @@ class Host:
                 try:
                     responses = session.walk(mib)
                     self.community = community
-                    self.network.node(ip)['scanable'] == True
+                    self.network.node[ip]['scanable'] = True
                     return responses
                 except easysnmp.exceptions.EasySNMPNoSuchNameError:
                     # Probably means that you're hitting the wrong kind of device.
                     raise
                 except easysnmp.exceptions.EasySNMPTimeoutError:
                     # Either the community string is wrong, or the address is dead.
+                    print('No response on', ip, 'with', community)
                     pass
-            print('scan failed with community',community,'on',ip)
             return False
         
-            # Scan IP addresses, starting with any that are known to work.
-            for ip in ips:
+        # Scan IP addresses, starting with any that are known to work.
+        for ip in ips:
+            try:
                 if self.network.node[ip]['scanable'] == True:
                     responses = scan(communities, ip)
                     if responses:
                         # If we've connected, then we're done.
                         return responses
-            # If there aren't any that are known to work, just try the rest.
-            for ip in ips:
-                responses = scan(communities, ip)
-                if responses:
-                    self.network.node(ip)['scanable'] = True
-                    return responses
-                else:
-                    # Either the address is dead, or the host is offline.
-                    self.network.node(ip)['scanable'] = False
-                    # Either way, the community string isn't to be trusted.
-                    self.community = None
-                    # And we'll try scanning with the network's list.
+            except KeyError:
+                # Scanability has not been ascertained. No special priority.
+                pass
+        # If there aren't any that are known to work, just try the rest.
+        for ip in ips:
+            responses = scan(communities, ip)
+            if responses:
+                self.network.node[ip]['scanable'] = True
+                return responses
+            else:
+                # Either the address is dead, or the host is offline.
+                self.network.node[ip]['scanable'] = False
+                # Either way, the community string isn't to be trusted.
+                self.community = []
         # If we've got nothing at this point, something is wrong.
         raise NonResponsiveError('No response for host at', ips)
 
     def getStatusPage(self):
         # Take the 
         with requests.Session() as websess:
-            payload = { 'username':config['radios']['unames'],
-                        'password':config['radios']['pwords']}
-            loginurl = 'https://' + self.ip + '/login.cgi?url=/status.cgi'
-            statusurl = 'https://' + self.ip + '/status.cgi'
-            # Open the session, to get a session cookie
-            websess.get(loginurl, verify=False, timeout=2)
-            # Authenticate, which makes that cookie valid
-            p = websess.post(loginurl, data=payload, verify=False, timeout=2)
-            # Get ze data
-            g = websess.get(statusurl, verify=False, timeout=2)
-            # It all comes back as JSON, so parse it.
-            try:
-                self.status = json.loads(g.text)
-            except ValueError:
-                # When the json comes back blank
-                print(self.ip)
-        return self.status
+            for ip in self.ips:
+                try:
+                    payload = { 'username':config['network']['radios']['unames'],
+                                'password':config['network']['radios']['pwords']}
+                    loginurl = 'https://' + ip + '/login.cgi?url=/status.cgi'
+                    statusurl = 'https://' + ip + '/status.cgi'
+                    # Open the session, to get a session cookie
+                    websess.get(loginurl, verify=False, timeout=2)
+                    # Authenticate, which makes that cookie valid
+                    p = websess.post(loginurl, data=payload, verify=False, 
+                        timeout=2)
+                    # Get ze data
+                    g = websess.get(statusurl, verify=False, timeout=2)
+                    # It all comes back as JSON, so parse it.
+                    try:
+                        status = json.loads(g.text)
+                        return status
+                    except ValueError:
+                        # When the json comes back blank
+                        print(self.ip)
+
 
     def scanHostname(self):
         mib = '1.3.6.1.2.1.1.5'
@@ -169,7 +197,14 @@ class Host:
         # information. We then cross-reference that index against the ips
         macmib = '1.3.6.1.2.1.2.2.1.6'
         ipmib = '1.3.6.1.2.1.4.20.1.2'
-        macrs = self.snmpwalk(macmib)
+        try:
+            macrs = self.snmpwalk(macmib)
+            iprs = self.snmpwalk(ipmib)
+        except NonResponsiveError:
+            # If SNMP doesn't give us the data, try going for the status page.
+            status = self.getStatusPage()
+            print(status)
+
         # Keep a list of known data points, so that we don't purge good data.
         keyedmacs = {}
         for macr in macrs:
@@ -177,18 +212,17 @@ class Host:
             #print(index)
             try:
                 mac = Mac(macr.value, encoding='utf-16')
-                keyedmacs[index].append()
+                keyedmacs[index].append(mac)
             except KeyError:
                 keyedmacs[index] = [mac]
             except InputError:
                 if len(macr.value) > 0:
                     print('invalid mac:', macr.value)
-        iprs = self.snmpwalk(ipmib)
         keyedips = {}
         for ipr in iprs:
             try:
                 ip = Ip(ipr.oid_index)
-                keyedips[ipr.value].append(ip)
+                keyedips[ipr.value].append(mac)
             except KeyError:
                 keyedips[ipr.value] = [ip]
             except InputError:
