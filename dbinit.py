@@ -10,18 +10,14 @@ from NetworkPrimitives import *
 def dbinit():
     yknet = Network()
     yknet.configure(config)
-    yknet.addHostByIp(config['network']['router'])
-    yknet.arpCrawl()
-    yknet.arpCrawl()
-
+    host = yknet.addHostByIp(config['network']['router'])
+    yknet.arpCrawl([host])
     return yknet
 
 if __name__ == '__main__':
     a = dbinit()
     #print(a.nodes())
     for node in a.nodes():
-        try:
+        if type(node) == Host:
             node.print()
-        except AttributeError:
-            pass
 

@@ -4,18 +4,23 @@ import networkx as nx
 from NetworkPrimitives import Mac, Ip, Netmask, Interface
 from Host import Host
 from Exceptions import *
+from datetime import datetime
+import time
 
 class Network(nx.Graph):
     def configure(self, config):
         self.communities = config['network']['communities']
 
-    def findConnections(self, node, etype=None):
+    def findConnections(self, node, etype=None, ntype=None):
         # This seems like it should be a builtin, but whatever. 
         # I might be mistaking a more idiomatic implementation.
         edges = self.edges(nbunch=node)
         if etype:
             # Filter for edges of the specified variety.
             edges[:] = [e for e in edges if e['etype'] == etype]
+        if ntype:
+            # Filter for edges with the specified ends.
+            edges[:] = [e for e in edges if type(e[1] == ntype)]
         return edges
 
     def findAdj(self, node, ntype=None):
@@ -34,10 +39,19 @@ class Network(nx.Graph):
                 # Some objects require the database to be passed.
                 obj = ntype(self)
             return obj
-        if len(nodes) == 0:
+        adj = []
+        # May or may nor be iterable.
+        try:
+            for node in nodes:
+                adj += self.findAdj(node, ntype=ntype)
+        except TypeError:
+            # Not iterable, just one node.
+            adj += self.finAdj(node, ntype=ntype)
+
+        if len(adj) == 0:
             return makeNew(ntype)
-        elif len(nodes) == 1:
-            return nodes.pop()
+        elif len(adj) == 1:
+            obj = adj.pop()
             if check:
                 # If there was a check, make sure that it's consistent.
                 validated = False
@@ -45,36 +59,54 @@ class Network(nx.Graph):
                 if check in checkobjs:
                     validated = True
                 if not validated:   
+                    print('purged', obj)
                     self.remove_node(obj)
                 return makeNew(ntype)
+            # If there wasn't a check, just return the only value.
+            return obj
         else:
             # There shouldn't be more than one connection.
-            self.remove_nodes_from(nodes)
+            print('conflict in', nodes, 'prompted purge of', adj)
+            self.remove_nodes_from(adj)
             return makeNew(ntype)
 
     def addHostByIp(self, ip):
         # Validation
         ip = Ip(ip)
         interface = Interface(self)
-        host = Host(self)
+        host = Host(self) # Adds itself with initialization.
         self.add_node(ip)
         self.add_node(interface)
-        self.add_node(host)
         self.add_edge(ip, interface)
         self.add_edge(interface, host)
+        return host
 
-    def arpCrawl(self):
+    def arpCrawl(self, hosts):
+        # Let's just get typecasting out of the way.
+        hosts = set(hosts)
         # Get existing hosts in the network.
-        hosts = [node for node in self.nodes() if type(node) == Host]
-        for host in hosts:
-            #print(host.ips)
+        #hosts = [node for node in self.nodes() if type(node) == Host]
+        while len(hosts) > 0:
+            # Sort the list so that the least recently updated is last.
+            hostlist = sorted(hosts, key=lambda h: self.node[h]['updated'], 
+                reverse=True)
+            # Take the oldest entry.
+            host = hostlist.pop()
             # Tries to scan each of the host's interfaces, until it gets a
             # non-empty table.
             try:
+                timestamp = time.mktime(datetime.now().timetuple())
+                self.node[host]['updated'] = timestamp
+                print('Scanning host: ', end='')
+                host.scanHostname()
+                print(host.hostname)
+                print('Scanning interfaces...')
                 host.scanInterfaces()
+                print('Scanning ARP...')
                 host.scanArpTable()
-
+                # Add newly discovered hosts in a deduplicated fashion.
+                hosts.update(self.findAdj(host, ntype=Host))
             except NonResponsiveError:
                 # The host is nonresponsive. Flag it.
-                raise
+                print('No response.')
 

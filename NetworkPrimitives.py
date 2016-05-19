@@ -99,6 +99,13 @@ class Interface:
         if ip:
             self.network.add_edge(self, ip)
 
+    def print(self):
+        print('\tInterface:')
+        for mac in self.macs:
+            print('\t\tMAC:', mac)
+        for ip in self.ips:
+            print('\t\tIP:', ip)
+
     @property
     def ips(self):
         return self.network.findAdj(self, ntype=Ip)
