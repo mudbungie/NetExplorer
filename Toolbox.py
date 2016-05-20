@@ -1,5 +1,6 @@
 # Loose functions for doing things
 import time
+import ipaddress
 from datetime import datetime
 
 def timestamp():
@@ -15,6 +16,13 @@ def getUnique(iterable):
         except KeyError:
             return None
 
+def ipInNetworks(ip, networks):
+    ip = ipaddress.ip_address(ip)
+    for network in networks:
+        if ip in ipaddress.ip_network(network):
+            return True
+    return False
+            
 
 # Exceptions
 

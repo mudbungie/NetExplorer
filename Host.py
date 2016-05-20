@@ -1,6 +1,6 @@
 # Class for a network object. 
 
-from NetworkPrimitives import Ip, Mac, Interface
+from NetworkPrimitives import Ip, Mac
 from Config import config
 from Exceptions import *
 import Toolbox
@@ -122,15 +122,16 @@ class Host:
                 pass
         # If there aren't any that are known to work, just try the rest.
         for ip in ips:
-            responses = scan(communities, ip)
-            if responses:
-                self.network.node[ip]['scanable'] = True
-                return responses
-            else:
-                # Either the address is dead, or the host is offline.
-                self.network.node[ip]['scanable'] = False
-                # Either way, the community string isn't to be trusted.
-                self.community = []
+            if not Toolbox.ipInNetworks(ip, config['network']['inaccessiblenets']):
+                responses = scan(communities, ip)
+                if responses:
+                    self.network.node[ip]['scanable'] = True
+                    return responses
+                else:
+                    # Either the address is dead, or the host is offline.
+                    self.network.node[ip]['scanable'] = False
+                    # Either way, the community string isn't to be trusted.
+                    self.community = []
         # If we've got nothing at this point, something is wrong.
         raise NonResponsiveError('No response for host at', ips)
 
@@ -160,7 +161,7 @@ class Host:
 
     def getInterfacePage(self):
         # Get the list of network interfaces from the web interface.
-        data = self.getStatusPage('iflist.cgi?_=' + Toolbox.timestamp())
+        data = self.getStatusPage('iflist.cgi?_=' + str(Toolbox.timestamp()))
         interfaces = []
         for ifdata in data['interfaces']:
             interface = {}
@@ -255,7 +256,7 @@ class Host:
         if self.vendor == 'ubiquity':
             # Ubiquity devices don't reply to IF-MIB requests for ip addresses,
             # but they have good interfaces. 
-            interfaces = self.getInterfacePage
+            interfaces = self.getInterfacePage()
         else:
             # Other hosts are mostly compliant to the IF-MIB.
             ipmib = '1.3.6.1.2.1.4.20.1.2'
@@ -339,3 +340,63 @@ class Host:
         #for interface in self.interfaces:
         #    interface.print()
         print('Discovered', len(self.interfaces), 'interfaces.')
+
+class Interface:
+    def __init__(self, network, mac=None, ip=None):
+        self.network = network
+        self.network.add_node(self)
+        if mac:
+            self.network.add_edge(self, mac)
+        if ip:
+            self.network.add_edge(self, ip)
+
+    def print(self):
+        print('\tInterface:')
+        for mac in self.macs:
+            print('\t\tMAC:', mac)
+        for ip in self.ips:
+            print('\t\tIP:', ip)
+
+    @property
+    def ips(self):
+        return self.network.findAdj(self, ntype=Ip)
+    @property
+    def mac(self):
+        macs = self.network.findAdj(self, ntype=Mac)
+        try:
+            return Toolbox.getUnique(macs)
+        except IndexError:
+            return None
+    @mac.setter
+    def mac(self, mac):
+        self.network.add_edge(self, mac)
+    @property
+    def host(self):
+        hosts = self.network.findAdj(self, ntype=Host)
+        return Toolbox.getUnique(hosts)
+    @host.setter
+    def host(self, host):
+        self.network.add_edge(self, host)
+
+    @property
+    def label(self):
+        return self.network.node(self)['label']
+    @label.setter
+    def label(self, label):
+        self.network.node(self)['label'] = label
+
+    @property
+    def speed(self):
+        return self.network.node(self)['speed']
+    @speed.setter
+    def speed(self, speed):
+        self.network.node(self)['speed'] = speed
+
+class BridgedInterface(Interface):
+    # Essentially, makes MAC non-unique for this interface.
+    @property
+    def macs(self):
+        return self.network.findAdj(self, ntype=Mac)
+    @property
+    def mac():
+        raise AttributeError('BridgedInterfaces have macs, not mac.')

@@ -1,8 +1,8 @@
 # Networkx-based graph database
 
 import networkx as nx
-from NetworkPrimitives import Mac, Ip, Netmask, Interface
-from Host import Host
+from NetworkPrimitives import Mac, Ip, Netmask
+from Host import Host, Interface
 from Exceptions import *
 
 class Network(nx.Graph):
