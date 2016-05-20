@@ -28,6 +28,24 @@ class Mac(str):
             raise InputError('Not a MAC address:', macstr)
 
         return super(Mac, cls).__new__(cls, macstr)
+    
+    @property
+    def vendor(self):
+        macvendors = {  'f0:9f:c2':'ubiquity',
+                        'dc:9f:db':'ubiquity',
+                        '80:2a:a8':'ubiquity',
+                        '68:72:51':'ubiquity',
+                        '44:d9:e7':'ubiquity',
+                        '24:a4:3c':'ubiquity',
+                        '04:18:d6':'ubiquity',
+                        '00:27:22':'ubiquity',
+                        '00:15:6d':'ubiquity',
+                        }
+        try:
+            return macvendors[self[0:8]] 
+        except KeyError:
+            return None
+        
 
 class Ip(str):
     def __new__(cls, address, encoding=None):

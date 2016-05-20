@@ -8,14 +8,6 @@ from Exceptions import *
 class Network(nx.Graph):
     def configure(self, config):
         self.communities = config['network']['communities']
-        self.macvendors = { 'f0:9f:c2':'ubiquity',
-                            'dc:9f:db':'ubiquity',
-                            '80:2a:a8':'ubiquity',
-                            '68:72:51':'ubiquity',
-                            '44:d9:e7':'ubiquity',
-                            '24:a4:3c':'ubiquity'.
-                            '':'ubiquity'.
-                            }
 
     def findConnections(self, node, etype=None, ntype=None):
         # This seems like it should be a builtin, but whatever. 
@@ -67,7 +59,10 @@ class Network(nx.Graph):
                 if not validated:   
                     print('purged', obj)
                     self.remove_node(obj)
-                return makeNew(ntype)
+                new = nameNew(ntype)
+                for node in nodes:
+                    self.add_edge(new, node)
+                return new 
             # If there wasn't a check, just return the only value.
             return obj
         else:
