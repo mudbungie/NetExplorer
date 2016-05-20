@@ -64,13 +64,15 @@ class Host:
 
     @property
     def vendor(self):
-        try:
-            return self.network.node[self]['vendor']
-        except KeyError:
-            return None
-    @vendor.setter
-    def vendor(self, vendor):
-        self.network.node[self]['vendor'] = vendor
+        for interface in self.interfaces:
+            try:
+                vendor = interface.mac.vendor
+                if interface.mac.vendor:
+                    return interface.mac.vendor
+            except AttributeError:
+                # Interface without a MAC
+                pass
+        return None
 
     def touch(self):
         # Update timestamp on host.
@@ -150,10 +152,10 @@ class Host:
                 g = websess.get(statusurl, verify=False, timeout=2)
                 # It all comes back as JSON, so parse it.
                 try:
-                    return = json.loads(g.text)
+                    return json.loads(g.text)
                 except ValueError:
                     # When the json comes back blank.
-                    print('Blank JSON at:' self.ip)
+                    print('Blank JSON at:', self.ip)
                     return False
 
     def getInterfacePage(self):
@@ -187,8 +189,8 @@ class Host:
                 # If the bridge is unknown, initialize it.
                 bridge = {}
                 # Sets for deduplication.
-                bridge{'interfaces'} = set(datum['port'])
-                bridge{'macs'} = set(datum['hwaddr'])
+                bridge['interfaces'] = set(datum['port'])
+                bridge['macs'] = set(datum['hwaddr'])
                 bridges.append(bridge)
             bridge = {}
             bridges[datum['bridge']] = {}
@@ -245,9 +247,8 @@ class Host:
             index = macr.oid_index
             try:
                 mac = Mac(macr.value, encoding='utf-16')
-                if mac.vendor:
-                    self.vendor = mac.vendor
-                keyedmacs[index] = mac
+                if not mac.vendor == 'local':
+                    keyedmacs[index] = mac
             except InputError:
                 if len(macr.value) > 0:
                     print('invalid mac:', macr.value)
@@ -265,10 +266,10 @@ class Host:
                 try:
                     # Ips are many-to-one to interfaces, so gotta be a list.
                     ip = Ip(ipr.oid_index)
-                    keyedips[ipr.value].append(mac)
+                    if not ip.startswith('127.'):
+                        keyedips[ipr.value].append(ip)
                 except KeyError:
-                    # Some interfaces will have an IP, but no MAC. 
-                    # Not sure why.
+                    # New key, record.
                     keyedips[ipr.value] = [ip]
                 except InputError:
                     if len(ipr.oid_index) > 0:
@@ -276,60 +277,59 @@ class Host:
 
             # Mac addresses are unique to interfaces, so build the relationship.
             interfaces = {}
-            for key, mac in keyedmacs:
+            for key, mac in keyedmacs.items():
                 try:
-                    interfaces{mac}.add(ips[key])
+                    interfaces[mac] |= set(keyedips[key])
                 except KeyError:
-                    interfaces{mac} = set(ips[key])
+                    # If this works, then the MAC is new.
+                    try:
+                        interfaces[mac] = set(keyedips[key])
+                    except KeyError:
+                        # There are no ips for that MAC.
+                        interfaces[mac] = set()
+    
+        # Now, we are going to assume that we have just obtained an
+        # authoritative list of all interfaces for this host, so we're 
+        # going to clear out everything elsee, since it might be old data
 
-           # Now, we are going to assume that we have just obtained an
-           # authoritative list of all interfaces for this host, so we're 
-           # going to clear out everything elsee, since it might be old data
+        for mac, ips in interfaces.items():
+            # See if we already have an interface for that MAC, which is 
+            # an authoritative correlation.
+            try:
+                interface = self.network.findAdj(mac, 
+                    ntype=Interface)[0]
+                # Check that the hostname on this device and the previously
+                # scanned device match. Otherwise, a NIC might have been moved
+                # between machines.
+                try:
+                    if self.hostname != interface.host.hostname:
+                        # This mac address was claimed by a different device!
+                        # This likely means that a NIC was moved between 
+                        # devices, which is weird.
+                        print('Possible switched network hardware for', mac)
+                        self.network.remove_edge(interface, interface.host)
+                        self.network.add_edge(interface, self)
+                except KeyError:
+                    # The interface is orphaned. Claim it.
+                    print('Orphaned device for', mac)
+                    self.network.add_edge(self, interface)
+            except IndexError:
+                # The Mac is new! Make a new interface to record it.
+                interface = Interface(self.network) 
+                self.network.add_edge(self, interface)
 
-            for mac, ips in interfaces:
-                
-            for key in keys:
-                try:
-                    macs = keyedmacs[key]
-                except KeyError:
-                    # Means that the address is unmatched. Happens when the MAC is
-                    # in the locally managed range.
-                    #print(ips[key])
-                    macs = []
-                try:
-                    ips = keyedips[key]
-                except KeyError:
-                    # There is a MAC without an IP address attached. This is fine.
-                    ips = []
-                # See if there is an interface already.
-                try:
-                    interface = [i for i in self.interfaces if self.network.\
-                        node[i]['index'] == key][0]
-                except KeyError:
-                    # There is no existing interface, make one.
-                    interface = Interface(self.network)
-                    self.network.add_edge(interface, self)
-                # Get rid of any inaccurate data associated with the interface.
-                for mac in interface.macs:
-                    if mac not in macs:
-                        self.network.remove_node(mac)
-                for interface in interface.ips:
-                    if ip not in ips:
-                        self.network.remove_node(ip)
-                
-                # Add in the new data.
-                for mac in macs:
-                    # Ignore internal local MAC addresses.
-                    if not mac[1] in ['2', '6', 'a', 'e']:
-                        self.network.add_edge(mac, interface)
-                for ip in ips:
-                    # Ignore loopback addresses.
-                    if not ip.startswith('127'):
-                        self.network.add_edge(ip, interface)
-                # Finally, associate the interface with the host.
-                self.network.add_edge(interface, self)
-            self.print()
-   
+            # Now that we have a properly associated interface, apply data.
+            interface.mac = mac
+            # Purge any bad data.
+            existingIps = interface.ips
+            for ip in existingIps:
+                if ip not in ips:
+                    self.network.remove_node(ip)
+            # Then, add in the new IPs.
+            for ip in ips:
+                if ip not in existingIps:
+                    self.network.add_edge(ip, interface)
+            
     def print(self):
         try:
             print('Host ' + self.hostname + ':')

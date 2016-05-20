@@ -2,6 +2,7 @@
 # your input!
 
 from Exceptions import InputError
+import Toolbox
 import re
 from binascii import hexlify
 
@@ -31,6 +32,8 @@ class Mac(str):
     
     @property
     def vendor(self):
+        if self[1] in ['2', '4', 'a', 'e']:
+            return 'local'
         macvendors = {  'f0:9f:c2':'ubiquity',
                         'dc:9f:db':'ubiquity',
                         '80:2a:a8':'ubiquity',
@@ -127,10 +130,23 @@ class Interface:
     @property
     def ips(self):
         return self.network.findAdj(self, ntype=Ip)
-
     @property
-    def macs(self):
-        return self.network.findAdj(self, ntype=Mac)
+    def mac(self):
+        macs = self.network.findAdj(self, ntype=Mac)
+        try:
+            return Toolbox.getUnique(macs)
+        except IndexError:
+            return None
+    @mac.setter
+    def mac(self, mac):
+        self.network.add_edge(self, mac)
+    @property
+    def host(self):
+        hosts = self.network.findAdj(self, ntype=Host)
+        return Toolbox.getUnique(hosts)
+    @host.setter
+    def host(self, host):
+        self.network.add_edge(self, host)
 
     @property
     def label(self):
@@ -145,3 +161,12 @@ class Interface:
     @speed.setter
     def speed(self, speed):
         self.network.node(self)['speed'] = speed
+
+class BridgedInterface(Interface):
+    # Essentially, makes MAC non-unique for this interface.
+    @property
+    def macs(self):
+        return self.network.findAdj(self, ntype=Mac)
+    @property
+    def mac():
+        raise AttributeError('BridgedInterfaces have macs, not mac.')

@@ -44,7 +44,7 @@ class Network(nx.Graph):
                 adj += self.findAdj(node, ntype=ntype)
         except TypeError:
             # Not iterable, just one node.
-            adj += self.finAdj(node, ntype=ntype)
+            adj += self.findAdj(nodes, ntype=ntype)
 
         if len(adj) == 0:
             return makeNew(ntype)
@@ -104,6 +104,7 @@ class Network(nx.Graph):
                 host.scanInterfaces()
                 print('Scanning ARP...')
                 host.scanArpTable()
+                host.print()
                 # Add newly discovered hosts in a deduplicated fashion.
                 hosts.update(self.findAdj(host, ntype=Host))
             except NonResponsiveError:
