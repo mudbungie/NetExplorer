@@ -53,6 +53,9 @@ class Host:
         try:
             return self.network.node[self]['hostname']
         except KeyError:
+            # If we don't know the hostname, try to get it.
+            #if self.scanHostname():
+            #    return self.network.node[self]['hostname']
             return None
     @hostname.setter
     def hostname(self, hostname):
@@ -61,6 +64,9 @@ class Host:
     @property
     def updated(self):
         return self.network.node[self]['updated']
+    def touch(self):
+        # Update timestamp on host.
+        self.network.node[self]['updated'] = Toolbox.timestamp()
 
     @property
     def vendor(self):
@@ -74,12 +80,12 @@ class Host:
                 pass
         return None
 
-    def touch(self):
-        # Update timestamp on host.
-        self.network.node[self]['updated'] = Toolbox.timestamp()
+    @property
+    def arpNeighbors(self):
+        return self.network.findAdj(self, ntype=Host, etype='arp')
 
     def snmpInit(self, community, ip):
-        session = easysnmp.Session(hostname=ip, community=community, version=1, timeout=0.5)
+        session = easysnmp.Session(hostname=ip, community=community, version=1, timeout=1)
         return session
 
     def snmpwalk(self, mib):
@@ -135,17 +141,27 @@ class Host:
         # If we've got nothing at this point, something is wrong.
         raise NonResponsiveError('No response for host at', ips)
 
-    def getStatusPage(self, path):
+    def getStatusPage(self, path, tries=0):
         # Negotiates HTTP auth and JSON decoding for getting data from 
         # the web interface. 
+        def urlsByProtocol(protocol, ip, path):
+            loginurl = protocol + '://' + ip + '/login.cgi?url=/' + path
+            statusurl = protocol + '://' + ip + '/' + path
+            return loginurl, statusurl
+
         with requests.Session() as websess:
             for ip in self.ips:
                 payload = { 'username':config['network']['radios']['unames'],
                             'password':config['network']['radios']['pwords']}
-                loginurl = 'https://' + ip + '/login.cgi?url=/' + path
-                statusurl = 'https://' + ip + '/' + path
-                # Open the session, to get a session cookie.
-                websess.get(loginurl, verify=False, timeout=2)
+                loginurl, statusurl = urlsByProtocol('https', ip, path)
+                # In case https is unavailable.
+                try:
+                    # Open the session, to get a session cookie.
+                    websess.get(loginurl, verify=False, timeout=2)
+                except requests.exceptions.ConnectionError:
+                    loginurl, statusurl = urlsByProtocol('http', ip, path)
+                    websess.get(loginurl, verify=False, timeout=2)
+                    print('HTTPS unavailable for:', ip)
                 # Authenticate, which makes that cookie valid.
                 p = websess.post(loginurl, data=payload, verify=False, 
                     timeout=2)
@@ -156,19 +172,24 @@ class Host:
                     return json.loads(g.text)
                 except ValueError:
                     # When the json comes back blank.
-                    print('Blank JSON at:', self.ip)
+                    print('Blank JSON at:', ip)
+                    tries += 1
+                    if tries <= 3:
+                       return self.GetStatusPage(path, tries) 
                     return False
 
     def getInterfacePage(self):
         # Get the list of network interfaces from the web interface.
         data = self.getStatusPage('iflist.cgi?_=' + str(Toolbox.timestamp()))
-        interfaces = []
+        interfaces = {}
         for ifdata in data['interfaces']:
             interface = {}
-            interface['mac'] = Mac(ifdata['hwaddr'])
-            interface['ip'] = Ip(ifdata['ipv4']['addr'])
-            interface['label'] = ifdata['ifname']
-            interfaces.append(interface)
+            try:
+                # The typing is for consistency with the SNMP data.
+                interfaces[Mac(ifdata['hwaddr'])] = set([Ip(ifdata['ipv4']['addr'])])
+            except KeyError:
+                # Some interfaces won't have an address.
+                pass
         return interfaces
 
     def getBridgePage(self):
@@ -200,11 +221,18 @@ class Host:
 
     def scanHostname(self):
         mib = '1.3.6.1.2.1.1.5'
-        responses = self.snmpwalk(mib)
+        try:
+            responses = self.snmpwalk(mib)
+        except NonResponsiveError:
+            return False
         self.network.node[self]['hostname'] = responses.pop().value
+        return True
         
     def scanArpTable(self):
         mib = 'ipNetToMediaPhysAddress'
+        if self.vendor == 'ubiquiti':
+            # 
+            return False
         responses = self.snmpwalk(mib)
         for response in responses:
             #print(response)
@@ -215,22 +243,22 @@ class Host:
                 ip = Ip(response.oid_index, encoding='snmp')
                 # We ignore data points that have to do with locally 
                 # administered MAC addresses.
-                localMacs = ['2', '6', 'a', 'e']
-                if mac[1] not in localMacs:
+                if not mac.local:
                     # See if we already have this data somewhere.
-                    interfaces = set(
-                        self.network.findAdj(ip, ntype=Interface) +\
-                        self.network.findAdj(mac, ntype=Interface))
-                    interface = self.network.getUnique(interfaces, 
-                        ntype=Interface, check=mac)
-                    # Now, connect the interface to everything.
-                    self.network.add_edge(mac, interface)
-                    self.network.add_edge(ip, interface)
-                    host = self.network.getUnique(interface, ntype=Host)
-                    self.network.add_edge(host, interface)
-                    # And connect the hosts together
-                    if host != self:
-                        self.network.add_edge(host, self)
+                    try:
+                        self.network.node[mac]
+                        self.network.node[ip]
+                        host = self.network.findParentHost(mac)
+                        self.network.add_edge(host, self, etype='arp')
+                    except KeyError:
+                        # This is new data. Add it in to the network.
+                        interface = Interface(self.network)
+                        host = Host(self.network)
+                        self.network.add_edge(host, self, etype='arp')
+                        interface.mac = mac
+                        interface.host = host
+                        interface.add_ip(ip)
+
             except AssertionError:
                 # Malformed input is to be ignored.
                 print('malformed input:', response.value, response.oid_index)
@@ -253,11 +281,15 @@ class Host:
             except InputError:
                 if len(macr.value) > 0:
                     print('invalid mac:', macr.value)
-        if self.vendor == 'ubiquity':
+        #print('Vendor', self.vendor)
+        if self.vendor == 'ubiquiti':
             # Ubiquity devices don't reply to IF-MIB requests for ip addresses,
             # but they have good interfaces. 
             interfaces = self.getInterfacePage()
         else:
+            for mac in self.macs:
+                #print(mac, mac.local)
+                pass
             # Other hosts are mostly compliant to the IF-MIB.
             ipmib = '1.3.6.1.2.1.4.20.1.2'
             iprs = self.snmpwalk(ipmib)
@@ -291,45 +323,36 @@ class Host:
     
         # Now, we are going to assume that we have just obtained an
         # authoritative list of all interfaces for this host, so we're 
-        # going to clear out everything elsee, since it might be old data
+        # going to clear out everything else, since it might be old data
 
         for mac, ips in interfaces.items():
-            # See if we already have an interface for that MAC, which is 
-            # an authoritative correlation.
-            try:
-                interface = self.network.findAdj(mac, 
-                    ntype=Interface)[0]
-                # Check that the hostname on this device and the previously
-                # scanned device match. Otherwise, a NIC might have been moved
-                # between machines.
-                try:
-                    if self.hostname != interface.host.hostname:
-                        # This mac address was claimed by a different device!
-                        # This likely means that a NIC was moved between 
-                        # devices, which is weird.
-                        print('Possible switched network hardware for', mac)
-                        self.network.remove_edge(interface, interface.host)
-                        self.network.add_edge(interface, self)
-                except KeyError:
-                    # The interface is orphaned. Claim it.
-                    print('Orphaned device for', mac)
-                    self.network.add_edge(self, interface)
-            except IndexError:
-                # The Mac is new! Make a new interface to record it.
-                interface = Interface(self.network) 
-                self.network.add_edge(self, interface)
-
-            # Now that we have a properly associated interface, apply data.
-            interface.mac = mac
-            # Purge any bad data.
-            existingIps = interface.ips
-            for ip in existingIps:
-                if ip not in ips:
-                    self.network.remove_node(ip)
-            # Then, add in the new IPs.
-            for ip in ips:
-                if ip not in existingIps:
-                    self.network.add_edge(ip, interface)
+            if not mac in self.macs:
+                # If we don't have this MAC address associated with this host,
+                # then we haven't scanned it in its current state. Wipe out 
+                # all other data regarding the IPs and MAC address.
+                interface = Interface(self.network)
+                self.network.add_edge(interface, self, etype='interface')
+                self.network.purgeConnections(mac, etype='interface')
+                self.network.add_edge(interface, mac)
+                #print('Added interface:', mac)
+                for ip in ips:
+                    self.network.purgeConnections(ip, etype='interface')
+                    self.network.add_edge(interface, ip, etype='interface')
+                    #print('\tNew IP:', ip)
+                
+            else:
+                # The interface is good. Justs double-check the IP addresses.
+                interface = self.network.getUnique(mac, ntype=Interface)
+                #print('Confirmed interface:', mac)
+                for ip in interface.ips:
+                    if not ip in ips:
+                        # If an IP didn't show up, that's not right.
+                        self.network.remove_node(ip)
+                        #print('\tPurged IP:', ip)
+                for ip in ips:
+                    if ip not in interface.ips:
+                        self.network.add_edge(ip, interface, etype='interface')
+                        #print('\tConfirmed IP:', ip)
             
     def print(self):
         try:
@@ -342,13 +365,9 @@ class Host:
         print('Discovered', len(self.interfaces), 'interfaces.')
 
 class Interface:
-    def __init__(self, network, mac=None, ip=None):
+    def __init__(self, network):
         self.network = network
         self.network.add_node(self)
-        if mac:
-            self.network.add_edge(self, mac)
-        if ip:
-            self.network.add_edge(self, ip)
 
     def print(self):
         print('\tInterface:')
@@ -360,6 +379,9 @@ class Interface:
     @property
     def ips(self):
         return self.network.findAdj(self, ntype=Ip)
+    def add_ip(self, ip):
+        self.network.add_edge(self, ip, etype='interface')
+
     @property
     def mac(self):
         macs = self.network.findAdj(self, ntype=Mac)
@@ -367,16 +389,19 @@ class Interface:
             return Toolbox.getUnique(macs)
         except IndexError:
             return None
+        except Toolbox.NonUniqueError:
+            # If there are multiples, just give the first one.
+            return macs[0]
     @mac.setter
     def mac(self, mac):
-        self.network.add_edge(self, mac)
+        self.network.add_edge(self, mac, etype='interface')
     @property
     def host(self):
         hosts = self.network.findAdj(self, ntype=Host)
         return Toolbox.getUnique(hosts)
     @host.setter
     def host(self, host):
-        self.network.add_edge(self, host)
+        self.network.add_edge(self, host, etype='interface')
 
     @property
     def label(self):

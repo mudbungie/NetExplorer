@@ -29,20 +29,26 @@ class Mac(str):
             raise InputError('Not a MAC address:', macstr)
 
         return super(Mac, cls).__new__(cls, macstr)
+
+    @property
+    def local(self):
+        # Tests if the penultimate bit in the first octet is a one.
+        # Because seriously, why the fuck is that how we determine this?
+        if bin(int(self.__str__().split(':')[0], 16))[-2:-1] == '1':
+            return True
+        return False
     
     @property
     def vendor(self):
-        if self[1] in ['2', '4', 'a', 'e']:
-            return 'local'
-        macvendors = {  'f0:9f:c2':'ubiquity',
-                        'dc:9f:db':'ubiquity',
-                        '80:2a:a8':'ubiquity',
-                        '68:72:51':'ubiquity',
-                        '44:d9:e7':'ubiquity',
-                        '24:a4:3c':'ubiquity',
-                        '04:18:d6':'ubiquity',
-                        '00:27:22':'ubiquity',
-                        '00:15:6d':'ubiquity',
+        macvendors = {  'f0:9f:c2':'ubiquiti',
+                        'dc:9f:db':'ubiquiti',
+                        '80:2a:a8':'ubiquiti',
+                        '68:72:51':'ubiquiti',
+                        '44:d9:e7':'ubiquiti',
+                        '24:a4:3c':'ubiquiti',
+                        '04:18:d6':'ubiquiti',
+                        '00:27:22':'ubiquiti',
+                        '00:15:6d':'ubiquiti',
                         }
         try:
             return macvendors[self[0:8]] 
@@ -81,6 +87,12 @@ class Ip(str):
             raise InputError('Not an IP address:' + str(address))
         # Sound like everything's fine!
         return octets
+
+    @property
+    def local(self):
+        if self.startswith('127.'):
+            return True
+        return False
 
 class Netmask(int):
     def __new__(cls, a):

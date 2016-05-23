@@ -11,7 +11,7 @@ def dbinit():
     yknet = Network()
     yknet.configure(config)
     host = yknet.addHostByIp(config['network']['router'])
-    yknet.arpCrawl([host])
+    yknet.arpCrawl()
     return yknet
 
 if __name__ == '__main__':
@@ -20,4 +20,3 @@ if __name__ == '__main__':
     for node in a.nodes():
         if type(node) == Host:
             node.print()
-
