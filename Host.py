@@ -10,6 +10,7 @@ import json
 import time
 from datetime import datetime
 import time
+import uuid
 
 # Disable security warnings.
 from requests.packages.urllib3.exceptions import InsecureRequestWarning
@@ -22,6 +23,18 @@ class Host:
         self.network.add_node(self)
         self.network.node[self]['updated'] = 0
         self.community = None
+
+    def __str__(self):
+        if self.hostname:
+            return self.hostname
+        else:
+            try:
+                return self.macs[0]
+            except IndexError:
+                try:
+                    return self.ips[0]
+                except IndexError:
+                    return None
 
     @property
     def interfaces(self):
@@ -160,8 +173,13 @@ class Host:
                     websess.get(loginurl, verify=False, timeout=2)
                 except requests.exceptions.ConnectionError:
                     loginurl, statusurl = urlsByProtocol('http', ip, path)
-                    websess.get(loginurl, verify=False, timeout=2)
-                    print('HTTPS unavailable for:', ip)
+                    try:
+                        websess.get(loginurl, verify=False, timeout=2)
+                        print('HTTPS unavailable for:', ip)
+                    except requests.exceptions.ConnectTimeout:
+                        # It's inaccessable. 
+                        print('No connections available for', ip)
+                        return False
                 # Authenticate, which makes that cookie valid.
                 p = websess.post(loginurl, data=payload, verify=False, 
                     timeout=2)
@@ -175,21 +193,22 @@ class Host:
                     print('Blank JSON at:', ip)
                     tries += 1
                     if tries <= 3:
-                       return self.GetStatusPage(path, tries) 
+                       return self.getStatusPage(path, tries) 
                     return False
 
     def getInterfacePage(self):
         # Get the list of network interfaces from the web interface.
         data = self.getStatusPage('iflist.cgi?_=' + str(Toolbox.timestamp()))
         interfaces = {}
-        for ifdata in data['interfaces']:
-            interface = {}
-            try:
-                # The typing is for consistency with the SNMP data.
-                interfaces[Mac(ifdata['hwaddr'])] = set([Ip(ifdata['ipv4']['addr'])])
-            except KeyError:
-                # Some interfaces won't have an address.
-                pass
+        if interfaces:
+            for ifdata in data['interfaces']:
+                interface = {}
+                try:
+                    # The typing is for consistency with the SNMP data.
+                    interfaces[Mac(ifdata['hwaddr'])] = set([Ip(ifdata['ipv4']['addr'])])
+                except KeyError:
+                    # Some interfaces won't have an address.
+                    pass
         return interfaces
 
     def getBridgePage(self):
@@ -247,9 +266,6 @@ class Host:
                     # See if we already have this data somewhere.
                     try:
                         self.network.node[mac]
-                        self.network.node[ip]
-                        host = self.network.findParentHost(mac)
-                        self.network.add_edge(host, self, etype='arp')
                     except KeyError:
                         # This is new data. Add it in to the network.
                         interface = Interface(self.network)
@@ -258,6 +274,11 @@ class Host:
                         interface.mac = mac
                         interface.host = host
                         interface.add_ip(ip)
+                    
+                    interface = self.network.findAdj(mac, ntype=Interface)[0]
+                    interface.add_ip(ip)
+                    host = self.network.findParentHost(interface)
+                    self.network.add_edge(host, self, etype='arp')
 
             except AssertionError:
                 # Malformed input is to be ignored.

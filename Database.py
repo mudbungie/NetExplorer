@@ -1,6 +1,7 @@
 # Networkx-based graph database
 
 import networkx as nx
+import matplotlib.pyplot as plt
 
 from NetworkPrimitives import Mac, Ip, Netmask
 from Host import Host, Interface
@@ -97,8 +98,13 @@ class Network(nx.Graph):
         # Take a node, walk until you run into a host.
         if type(node) != Host:
             seen.append(node)
-            for adj in self.findAdj(node):
-                if not node in seen:
+            try:
+                adjacent = [adj for adj in self.neighbors(node)]
+            except nx.exception.NetworkXError:
+                print(node, type(node))
+                raise
+            for adj in adjacent:
+                if not adj in seen:
                     node = self.findParentHost(adj, seen=seen)
         return node
 
@@ -132,6 +138,7 @@ class Network(nx.Graph):
                 #host.print()
                 print('Host\'s new timestamp:', host.updated)
                 print('There are', len(self.nodes()), 'nodes.')
+                print('Of which', len([a for a in self.nodes() if type(a) == Host]), 'are hosts.')
                 print('Of which', len([a for a in self.nodes() if type(a) == Host and a.hostname == 'AwbreyM20']), 'are AwbreyM20.')
             else:
                 print('Host nonresponsive at', host.ips)
@@ -145,5 +152,8 @@ class Network(nx.Graph):
             #hosts = [h for h in hostsort if h.updated < timestamp]
             # Take the oldest entry.
             scan(host)
+            #nx.draw(self, nx.spring_layout(self), node_size=3, node_color='yellow', font_size=6)
+            #plt.tight_layout()
+            #plt.savefig('graph.png', format='PNG')
             hosts += [h for h in self.hosts if h.updated < timestamp]
         
