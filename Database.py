@@ -163,6 +163,8 @@ class Network(nx.Graph):
                 print(host.hostname)
                 print('Scanning interfaces...', end=' ')
                 host.scanInterfaces()
+                host.print()
+
                 print(len(host.interfaces), 'interfaces discovered.')
                 if not host.vendor == 'ubiquiti':
                     print('Scanning ARP...', end=' ')

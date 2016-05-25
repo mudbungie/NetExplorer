@@ -47,7 +47,8 @@ class Host(dict):
 
     @property
     def interfaces(self):
-        return self.network.findAdj(self, ntype=Interface)
+        return [iface for iface in self.network.neighbors(self)\
+            if type(iface) == Interface]
 
     @property
     def ips(self):
@@ -69,6 +70,11 @@ class Host(dict):
     @community.setter
     def community(self, community):
         self.network.node[self]['community'] = community
+
+    @property
+    def addresses(self):
+        # Aggregation of all MAC and IP addresses
+        return self.macs + self.interfaces
 
     @property
     def hostname(self):
@@ -306,20 +312,16 @@ class Host(dict):
             index = macr.oid_index
             try:
                 mac = Mac(macr.value, encoding='utf-16')
-                if not mac.vendor == 'local':
+                if not mac.local:
                     keyedmacs[index] = mac
             except InputError:
                 if len(macr.value) > 0:
                     print('invalid mac:', macr.value)
-        #print('Vendor', self.vendor)
         if self.vendor == 'ubiquiti':
             # Ubiquity devices don't reply to IF-MIB requests for ip addresses,
             # but they will give the data through a web portal.
             interfaces = self.getInterfacePage()
         else:
-            for mac in self.macs:
-                #print(mac, mac.local)
-                pass
             # Other hosts are mostly compliant to the IF-MIB.
             ipmib = '1.3.6.1.2.1.4.20.1.2'
             iprs = self.snmpwalk(ipmib)
@@ -343,6 +345,10 @@ class Host(dict):
             for key, mac in keyedmacs.items():
                 try:
                     interfaces[mac] |= set(keyedips[key])
+                    # Clear this out, because there might be IPs without macs.
+                    # ...somehow...
+                    del keyedips[key]
+                    #print('Interface', mac, '=', interfaces[mac])
                 except KeyError:
                     # If this works, then the MAC is new.
                     try:
@@ -350,39 +356,48 @@ class Host(dict):
                     except KeyError:
                         # There are no ips for that MAC.
                         interfaces[mac] = set()
+            # Now, go through for any IPs that weren't assigned, and add them.
+            for ips in keyedips.values():
+                interface = Interface(self.network)
+                for ip in ips:
+                    if ip not in self.ips:
+                        print('IP detected without associated MAC:', ip)
+                        interface.add_ip(ip)
+                        self.network.add_edge(interface, self)
 
         # Now, we are going to assume that we have just obtained an
         # authoritative list of all interfaces for this host, so we're 
-        # going to clear out everything else, since it might be old data
-
+        # going to clear out everything else, since it might be old data.
+        print('Adding', len(interfaces), 'interfaces...')
         for mac, ips in interfaces.items():
             if not mac in self.macs:
+                print('Adding interface:', mac, end=' ')
                 # If we don't have this MAC address associated with this host,
                 # then we haven't scanned it in its current state. Wipe out 
                 # all other data regarding the IPs and MAC address.
                 interface = Interface(self.network)
-                self.network.add_edge(interface, self, etype='interface')
-                self.network.purgeConnections(mac, etype='interface')
+                self.network.add_edge(interface, self)
+                # In case the MAC was somewhere else in the network.
+                self.network.purgeConnections(mac)
                 self.network.add_edge(interface, mac)
                 #print('Added interface:', mac)
-                for ip in ips:
-                    self.network.purgeConnections(ip, etype='interface')
-                    self.network.add_edge(interface, ip, etype='interface')
-                    #print('\tNew IP:', ip)
-                
             else:
+                print('Confirming old interface:', mac, end=' ')
                 # The interface is good. Justs double-check the IP addresses.
                 interface = self.network.getUnique(mac, ntype=Interface)
-                #print('Confirmed interface:', mac)
                 for ip in interface.ips:
                     if not ip in ips:
                         # If an IP didn't show up, that's not right.
-                        self.network.remove_node(ip)
+                        print('Previously observed interface', ip, 'missing.')
+                        self.network.node[ip]['status'] == 'bad'
                         #print('\tPurged IP:', ip)
-                for ip in ips:
-                    if ip not in interface.ips:
-                        self.network.add_edge(ip, interface, etype='interface')
-                        #print('\tConfirmed IP:', ip)
+            for ip in ips:
+                # In case this IP was somewhere else in the network.
+                self.network.purgeConnections(ip)
+                self.network.add_edge(interface, ip)
+                print(ip, end=' ')
+            print('\nThere are presently', len(self.interfaces), 'interfaces.') 
+
         return True
             
     def print(self):
@@ -398,7 +413,6 @@ class Host(dict):
 class Interface(str):
     def __init__(self, network):
         self.network = network
-        self.network.add_node(self)
 
     def print(self):
         print('\tInterface:')
@@ -411,7 +425,7 @@ class Interface(str):
         try:
             return self.__hash
         except AttributeError:
-            self.__hash = hash(uuid.uuid4)
+            self.__hash = hash(uuid.uuid4())
             return self.__hash
 
     @property
@@ -440,6 +454,11 @@ class Interface(str):
     @host.setter
     def host(self, host):
         self.network.add_edge(self, host, etype='interface')
+
+    @property
+    def addresses(self):
+        # Provides a list of all addresses associated with this device.
+        return self.ips + [self.mac]
 
     @property
     def label(self):
