@@ -1,7 +1,9 @@
 # Networkx-based graph database
 
 import networkx as nx
+from networkx.readwrite import json_graph
 import matplotlib.pyplot as plt
+import json
 
 from NetworkPrimitives import Mac, Ip, Netmask
 from Host import Host, Interface
@@ -51,6 +53,29 @@ class Network(nx.Graph):
         else:
             return [e[1] for e in edges]
 
+    def getInterface(self, node):
+        try:
+            for neighbor in self.neighbors(node):
+                if type(neighbor) == Interface:
+                    return neighbor
+        except nx.exception.NetworkXError:
+            return False
+
+    def arp(self, networkobj):
+        interface = self.getInterface(networkobj)
+        results = []
+        # Takes a mac, and gives IPs, or takes an IP and give MACs.
+        try:
+            for n in self.neighbors(networkobj):
+                if type(n) == Interface:
+                    for n2 in self.neighbors(n):
+                        if type(n2) == Mac or type(n2) == Ip and \
+                            type(n2) != type(networkobj):
+                            results.append(n2)
+            return results
+        except nx.exception.NetworkXError:
+            return None
+                        
     def getUnique(self, nodes, ntype=None, check=None):
         # Returns a single adjacent node, purges violators.
         def makeNew(ntype):
@@ -106,7 +131,10 @@ class Network(nx.Graph):
             for adj in adjacent:
                 if not adj in seen:
                     node = self.findParentHost(adj, seen=seen)
-        return node
+        else:
+            return node
+        return None
+
 
     def addHostByIp(self, ip):
         # Validation
@@ -117,6 +145,7 @@ class Network(nx.Graph):
         self.add_node(interface)
         self.add_edge(ip, interface, etype='interface')
         self.add_edge(interface, host, etype='interface')
+        print(host.updated)
         return host
 
     @property
@@ -129,19 +158,24 @@ class Network(nx.Graph):
             # Update the timestamp.
             host.touch()
             # If we can't get a hostname, nothing else is going to work.
+            print('Scanning host...', end=' ')
             if host.scanHostname():
-                print('Hostname', host.hostname)
-                print('Scanning interfaces...')
+                print(host.hostname)
+                print('Scanning interfaces...', end=' ')
                 host.scanInterfaces()
-                print('Scanning ARP...')
-                host.scanArpTable()
+                print(len(host.interfaces), 'interfaces discovered.')
+                if not host.vendor == 'ubiquiti':
+                    print('Scanning ARP...', end=' ')
+                    arps = host.scanArpTable()
+                    print(len(arps), 'arp records discovered.')
                 #host.print()
                 print('Host\'s new timestamp:', host.updated)
                 print('There are', len(self.nodes()), 'nodes.')
                 print('Of which', len([a for a in self.nodes() if type(a) == Host]), 'are hosts.')
-                print('Of which', len([a for a in self.nodes() if type(a) == Host and a.hostname == 'AwbreyM20']), 'are AwbreyM20.')
+                print('Of which', len([a for a in self.nodes() if type(a) == Host\
+                    and a.hostname == 'AwbreyM20']), 'are AwbreyM20.')
             else:
-                print('Host nonresponsive at', host.ips)
+                print('Scan failed at', host.ips)
         hosts = self.hosts
         # Sort the list so that the least recently updated is last.
         for host in hosts:
@@ -155,5 +189,7 @@ class Network(nx.Graph):
             #nx.draw(self, nx.spring_layout(self), node_size=3, node_color='yellow', font_size=6)
             #plt.tight_layout()
             #plt.savefig('graph.png', format='PNG')
+            with open('network.json', 'w') as outfile:
+                outfile.write(json.dumps(json_graph.node_link_data(self)))
             hosts += [h for h in self.hosts if h.updated < timestamp]
-        
+    

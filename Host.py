@@ -16,13 +16,14 @@ import uuid
 from requests.packages.urllib3.exceptions import InsecureRequestWarning
 requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
 
-class Host:
+class Host(dict):
     def __init__(self, network):
         self.network = network
         # Set the timestamp for unix epoch, unless it was set during init.
         self.network.add_node(self)
         self.network.node[self]['updated'] = 0
         self.community = None
+        self.serial = str(uuid.uuid4())
 
     def __str__(self):
         if self.hostname:
@@ -35,6 +36,14 @@ class Host:
                     return self.ips[0]
                 except IndexError:
                     return None
+
+    def __hash__(self):
+        try:
+            return self.__hash
+        except AttributeError:
+            self.__hash = hash(uuid.uuid4())
+            return self.__hash
+
 
     @property
     def interfaces(self):
@@ -181,12 +190,18 @@ class Host:
                         print('No connections available for', ip)
                         return False
                 # Authenticate, which makes that cookie valid.
-                p = websess.post(loginurl, data=payload, verify=False, 
-                    timeout=2)
-                # Get ze data.
-                g = websess.get(statusurl, verify=False, timeout=2)
-                # It all comes back as JSON, so parse it.
                 try:
+                    p = websess.post(loginurl, data=payload, verify=False, 
+                        timeout=2)
+                    # Get ze data.
+                    g = websess.get(statusurl, verify=False, timeout=2)
+                except requests.exceptions.ConnectionError:
+                    tries += 1
+                    if tries <= 3:
+                        return self.getStatusPage(path, tries)
+                    return False
+                try:
+                    # It all comes back as JSON, so parse it.
                     return json.loads(g.text)
                 except ValueError:
                     # When the json comes back blank.
@@ -250,9 +265,9 @@ class Host:
     def scanArpTable(self):
         mib = 'ipNetToMediaPhysAddress'
         if self.vendor == 'ubiquiti':
-            # 
             return False
         responses = self.snmpwalk(mib)
+        arps = []
         for response in responses:
             #print(response)
             try:
@@ -264,9 +279,8 @@ class Host:
                 # administered MAC addresses.
                 if not mac.local:
                     # See if we already have this data somewhere.
-                    try:
-                        self.network.node[mac]
-                    except KeyError:
+                    recordedarp = self.network.arp(mac)
+                    if not recordedarp or not ip in recordedarp:
                         # This is new data. Add it in to the network.
                         interface = Interface(self.network)
                         host = Host(self.network)
@@ -274,16 +288,11 @@ class Host:
                         interface.mac = mac
                         interface.host = host
                         interface.add_ip(ip)
-                    
-                    interface = self.network.findAdj(mac, ntype=Interface)[0]
-                    interface.add_ip(ip)
-                    host = self.network.findParentHost(interface)
-                    self.network.add_edge(host, self, etype='arp')
-
+                arps.append((mac, ip))
             except AssertionError:
                 # Malformed input is to be ignored.
                 print('malformed input:', response.value, response.oid_index)
-        return True
+        return arps
 
     def scanInterfaces(self):
         # We scan the mib to mac addresses, which gives us indexing
@@ -305,7 +314,7 @@ class Host:
         #print('Vendor', self.vendor)
         if self.vendor == 'ubiquiti':
             # Ubiquity devices don't reply to IF-MIB requests for ip addresses,
-            # but they have good interfaces. 
+            # but they will give the data through a web portal.
             interfaces = self.getInterfacePage()
         else:
             for mac in self.macs:
@@ -341,7 +350,7 @@ class Host:
                     except KeyError:
                         # There are no ips for that MAC.
                         interfaces[mac] = set()
-    
+
         # Now, we are going to assume that we have just obtained an
         # authoritative list of all interfaces for this host, so we're 
         # going to clear out everything else, since it might be old data
@@ -374,6 +383,7 @@ class Host:
                     if ip not in interface.ips:
                         self.network.add_edge(ip, interface, etype='interface')
                         #print('\tConfirmed IP:', ip)
+        return True
             
     def print(self):
         try:
@@ -385,7 +395,7 @@ class Host:
         #    interface.print()
         print('Discovered', len(self.interfaces), 'interfaces.')
 
-class Interface:
+class Interface(str):
     def __init__(self, network):
         self.network = network
         self.network.add_node(self)
@@ -396,6 +406,13 @@ class Interface:
             print('\t\tMAC:', mac)
         for ip in self.ips:
             print('\t\tIP:', ip)
+    
+    def __hash__(self):
+        try:
+            return self.__hash
+        except AttributeError:
+            self.__hash = hash(uuid.uuid4)
+            return self.__hash
 
     @property
     def ips(self):
