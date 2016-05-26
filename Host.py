@@ -30,12 +30,12 @@ class Host(dict):
             return self.hostname
         else:
             try:
-                return self.macs[0]
+                return 'Host:' + self.macs[0]
             except IndexError:
                 try:
-                    return self.ips[0]
+                    return 'Host:' + self.ips[0]
                 except IndexError:
-                    return None
+                    return str(self.__hash__())
 
     def __hash__(self):
         try:
@@ -272,6 +272,8 @@ class Host(dict):
         mib = 'ipNetToMediaPhysAddress'
         if self.vendor == 'ubiquiti':
             return False
+        else:
+            print(self.macs, len(self.interfaces))
         responses = self.snmpwalk(mib)
         arps = []
         for response in responses:
@@ -283,18 +285,9 @@ class Host(dict):
                 ip = Ip(response.oid_index, encoding='snmp')
                 # We ignore data points that have to do with locally 
                 # administered MAC addresses.
-                if not mac.local:
+                if not mac.local and not ip.local:
                     # See if we already have this data somewhere.
-                    recordedarp = self.network.arp(mac)
-                    if not recordedarp or not ip in recordedarp:
-                        # This is new data. Add it in to the network.
-                        interface = Interface(self.network)
-                        host = Host(self.network)
-                        self.network.add_edge(host, self, etype='arp')
-                        interface.mac = mac
-                        interface.host = host
-                        interface.add_ip(ip)
-                arps.append((mac, ip))
+                    self.network.addHostByIp(ip, mac=mac)
             except AssertionError:
                 # Malformed input is to be ignored.
                 print('malformed input:', response.value, response.oid_index)
@@ -308,16 +301,20 @@ class Host(dict):
 
         # The MAC address tells us the vendor, which determines some logic.
         keyedmacs = {}
+        vendor = None
         for macr in macrs:
             index = macr.oid_index
             try:
                 mac = Mac(macr.value, encoding='utf-16')
                 if not mac.local:
                     keyedmacs[index] = mac
+                    if mac.vendor:
+                        vendor = mac.vendor
             except InputError:
                 if len(macr.value) > 0:
                     print('invalid mac:', macr.value)
-        if self.vendor == 'ubiquiti':
+
+        if vendor == 'ubiquiti':
             # Ubiquity devices don't reply to IF-MIB requests for ip addresses,
             # but they will give the data through a web portal.
             interfaces = self.getInterfacePage()
@@ -358,12 +355,18 @@ class Host(dict):
                         interfaces[mac] = set()
             # Now, go through for any IPs that weren't assigned, and add them.
             for ips in keyedips.values():
-                interface = Interface(self.network)
+                interface = None
+                newips = []
                 for ip in ips:
-                    if ip not in self.ips:
+                    if ip in self.ips:
+                        interface = self.network.getInterface(ip)
+                    else:
                         print('IP detected without associated MAC:', ip)
-                        interface.add_ip(ip)
-                        self.network.add_edge(interface, self)
+                        newips.append(ip)
+                if not interface:
+                    interface = Interface(self)
+                for ip in newips:
+                    interface.add_ip(ip)
 
         # Now, we are going to assume that we have just obtained an
         # authoritative list of all interfaces for this host, so we're 
@@ -375,7 +378,7 @@ class Host(dict):
                 # If we don't have this MAC address associated with this host,
                 # then we haven't scanned it in its current state. Wipe out 
                 # all other data regarding the IPs and MAC address.
-                interface = Interface(self.network)
+                interface = Interface(self)
                 self.network.add_edge(interface, self)
                 # In case the MAC was somewhere else in the network.
                 self.network.purgeConnections(mac)
@@ -411,8 +414,9 @@ class Host(dict):
         print('Discovered', len(self.interfaces), 'interfaces.')
 
 class Interface(str):
-    def __init__(self, network):
-        self.network = network
+    def __init__(self, host):
+        self.network = host.network
+        self.network.add_edge(self, host)
 
     def print(self):
         print('\tInterface:')
@@ -427,6 +431,9 @@ class Interface(str):
         except AttributeError:
             self.__hash = hash(uuid.uuid4())
             return self.__hash
+
+    def __str__(self):
+        print('Interface(', self.mac, self.ips, ')')
 
     @property
     def ips(self):

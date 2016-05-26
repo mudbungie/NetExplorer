@@ -60,21 +60,6 @@ class Network(nx.Graph):
                     return neighbor
         except nx.exception.NetworkXError:
             return False
-
-    def arp(self, networkobj):
-        interface = self.getInterface(networkobj)
-        results = []
-        # Takes a mac, and gives IPs, or takes an IP and give MACs.
-        try:
-            for n in self.neighbors(networkobj):
-                if type(n) == Interface:
-                    for n2 in self.neighbors(n):
-                        if type(n2) == Mac or type(n2) == Ip and \
-                            type(n2) != type(networkobj):
-                            results.append(n2)
-            return results
-        except nx.exception.NetworkXError:
-            return None
                         
     def getUnique(self, nodes, ntype=None, check=None):
         # Returns a single adjacent node, purges violators.
@@ -135,17 +120,33 @@ class Network(nx.Graph):
             return node
         return None
 
+    def typedNeighbors(self, node, ntype, desc=False):
+        try:
+            if not desc:
+                return [n for n in self.neighbors(node) if type(n) == ntype]
+        except nx.exception.NetworkXError:
+            return None
 
-    def addHostByIp(self, ip):
+    def addHostByIp(self, ip, mac=False):
         # Validation
         ip = Ip(ip)
-        interface = Interface(self)
-        host = Host(self) # Adds itself with initialization.
-        self.add_node(ip)
-        self.add_node(interface)
-        self.add_edge(ip, interface, etype='interface')
-        self.add_edge(interface, host, etype='interface')
-        print(host.updated)
+        interfaces = self.typedNeighbors(ip, Interface)
+        if interfaces:
+            # We already know about this.
+            interface = interfaces[0]
+            print(ip)
+            print('l1', self.neighbors(ip))
+            for neighbor in self.neighbors(ip):
+                print('l2', self.neighbors(neighbor))
+            print('hostname:',interface.host.hostname)
+            return self.typedNeighbors(interface, Host)[0]
+        else:
+            # We don't know about it, initialize it.
+            host = Host(self)
+            interface = Interface(host)
+            interface.add_ip(ip)
+            if mac:
+                interface.mac = mac
         return host
 
     @property

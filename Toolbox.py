@@ -13,7 +13,7 @@ def getUnique(iterable):
     else:
         try:
             return iterable[0]
-        except KeyError:
+        except IndexError:
             return None
 
 def ipInNetworks(ip, networks):
