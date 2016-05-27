@@ -17,13 +17,25 @@ from requests.packages.urllib3.exceptions import InsecureRequestWarning
 requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
 
 class Host(dict):
-    def __init__(self, network):
+    def __init__(self, network, ip=None, mac=None):
+        self.serial = hash(str(uuid.uuid4()))
         self.network = network
         # Set the timestamp for unix epoch, unless it was set during init.
         self.network.add_node(self)
         self.network.node[self]['updated'] = 0
         self.community = None
-        self.serial = str(uuid.uuid4())
+
+        # If supplied with an IP address or a MAC address, add those.
+        if ip:
+            if type(ip) != Ip:
+                ip = Ip(ip)
+            self.addAddress(ip)
+        if mac:
+            if type(mac) != Mac:
+                mac = Mac(mac)
+            self.addAddress(mac)
+
+        print(self.ips)
 
     def __str__(self):
         if self.hostname:
@@ -38,31 +50,15 @@ class Host(dict):
                     return str(self.__hash__())
 
     def __hash__(self):
-        try:
-            return self.__hash
-        except AttributeError:
-            self.__hash = hash(uuid.uuid4())
-            return self.__hash
-
-
-    @property
-    def interfaces(self):
-        return [iface for iface in self.network.neighbors(self)\
-            if type(iface) == Interface]
+        return self.serial
 
     @property
     def ips(self):
-        ips = []
-        for interface in self.interfaces:
-            ips += self.network.findAdj(interface, ntype=Ip)
-        return ips
+        return sorted(self.network.typedNeighbors(self, Ip))
 
     @property
     def macs(self):
-        macs = []
-        for interface in self.interfaces:
-            macs += self.network.findAdj(interface, ntype=Mac)
-        return macs
+        return sorted(self.network.typedNeighbors(self, Mac))
 
     @property
     def community(self):
@@ -74,16 +70,13 @@ class Host(dict):
     @property
     def addresses(self):
         # Aggregation of all MAC and IP addresses
-        return self.macs + self.interfaces
+        return self.macs + self.ips
 
     @property
     def hostname(self):
         try:
             return self.network.node[self]['hostname']
         except KeyError:
-            # If we don't know the hostname, try to get it.
-            #if self.scanHostname():
-            #    return self.network.node[self]['hostname']
             return None
     @hostname.setter
     def hostname(self, hostname):
@@ -98,21 +91,51 @@ class Host(dict):
 
     @property
     def vendor(self):
-        for interface in self.interfaces:
-            try:
-                vendor = interface.mac.vendor
-                if interface.mac.vendor:
-                    return interface.mac.vendor
-            except AttributeError:
-                # Interface without a MAC
-                pass
+        # Take the first recognizable MAC vendor we find.
+        for mac in self.macs:
+            if mac.vendor:
+                return mac.vendor
         return None
 
     @property
     def arpNeighbors(self):
         return self.network.findAdj(self, ntype=Host, etype='arp')
 
-    def snmpInit(self, community, ip):
+    @property
+    def mgmntip(self):
+        # An IP address that is confirmed to work with this host.
+        try:
+            for ip in self.ips:
+                edge = self.network[self][ip]
+                if 'mgmnt' in edge and edge['mgmnt'] == True:
+                    return ip
+            # Unless we don't know one.
+        except TypeError:
+            # Means that there are no IPs.
+            pass
+        return False
+    def setmgmntip(self, ip, isit):
+        self.network[self][ip]['mgmnt'] = isit
+
+    def addAddress(self, address, ifnum=None):
+        if not address.local:
+            if address in self.addresses:
+                # Add the ifnum, in case it's not there.
+                self.network.node[address]['ifnum'] = ifnum
+            else:
+                # This is a new mac, or at least not attached to this host.
+                self.network.removeSafely(address)
+                self.network.add_node(address, ifnum=ifnum)
+                self.network.add_edge(self, address, etype='owns')
+                # Associate it with any similarly-numbered IPs.
+                if ifnum:
+                    for a in self.addresses:
+                        if 'ifnum' in self.network.node[a] and \
+                                self.network.node[a]['ifnum'] == ifnum:
+                            self.network.add_edge(address, a, etype='interface')
+
+    def snmpInit(self, ip, community):
+        print(ip, community)
         session = easysnmp.Session(hostname=ip, community=community, version=1, timeout=1)
         return session
 
@@ -123,51 +146,55 @@ class Host(dict):
         # work on this host.
         communities = self.network.communities.copy()
         if self.community:
+            # Means we have a functional community string. Use that first.
             communities.append(self.community)
         communities.reverse()
 
-        def scan(communities, ip):
+        def scanAllCommunities(ip):
             for community in communities:
-                session = self.snmpInit(community, ip)
-                try:
-                    responses = session.walk(mib)
-                    self.community = community
-                    self.network.node[ip]['scanable'] = True
-                    return responses
-                except easysnmp.exceptions.EasySNMPNoSuchNameError:
-                    # Probably means that you're hitting the wrong kind of device.
-                    raise
-                except easysnmp.exceptions.EasySNMPTimeoutError:
-                    # Either the community string is wrong, or the address is dead.
-                    print('No response on', ip, 'with', community)
-                    pass
+                results = scan(ip, community)
+                if results:
+                    return results
             return False
-        
-        # Scan IP addresses, starting with any that are known to work.
-        for ip in ips:
+
+        def scan(ip, community):
+            session = self.snmpInit(ip, community)
             try:
-                if self.network.node[ip]['scanable'] == True:
-                    responses = scan(communities, ip)
-                    if responses:
-                        # If we've connected, then we're done.
-                        return responses
-            except KeyError:
-                # Scanability has not been ascertained. No special priority.
+                responses = session.walk(mib)
+                self.community = community
+                self.setmgmntip(ip, True)
+                print('Response on', ip, 'with', community)
+                return responses
+            except easysnmp.exceptions.EasySNMPNoSuchNameError:
+                # Probably means that you're hitting the wrong kind of device.
+                self.community = None
+                self.setmgmntip(ip, False)
+                raise
+            except easysnmp.exceptions.EasySNMPTimeoutError:
+                # Either the community string is wrong, or the address is dead.
+                print('No response on', ip, 'with', community)
+                self.community = False
+                self.setmgmntip(ip, False)
                 pass
-        # If there aren't any that are known to work, just try the rest.
+            return False
+
+        # First, we try using known-good settings for communicating with this
+        # host.
+        if self.mgmntip:
+            if self.community:
+                results = scan(self.mgmntip, self.community)
+                if results:
+                    return results
+            results = scanAllCommunities(ip)
+            if results:
+                return results
+        # If we have no known-good settings, we just iterate over everything.
         for ip in ips:
-            if not Toolbox.ipInNetworks(ip, config['network']['inaccessiblenets']):
-                responses = scan(communities, ip)
-                if responses:
-                    self.network.node[ip]['scanable'] = True
-                    return responses
-                else:
-                    # Either the address is dead, or the host is offline.
-                    self.network.node[ip]['scanable'] = False
-                    # Either way, the community string isn't to be trusted.
-                    self.community = []
-        # If we've got nothing at this point, something is wrong.
-        raise NonResponsiveError('No response for host at', ips)
+            if not Toolbox.ipInNetworks(ip, self.network.inaccessiblenets):
+                results = scanAllCommunities(ip)
+                if results:
+                    return results
+        return False
 
     def getStatusPage(self, path, tries=0):
         # Negotiates HTTP auth and JSON decoding for getting data from 
@@ -265,15 +292,20 @@ class Host(dict):
             responses = self.snmpwalk(mib)
         except NonResponsiveError:
             return False
-        self.network.node[self]['hostname'] = responses.pop().value
-        return True
+        try:
+            hostname = responses.pop().value
+        except AttributeError:
+            # The responses came back empty.
+            return False
+        self.network.node[self]['hostname'] = hostname
+        return hostname
         
     def scanArpTable(self):
         mib = 'ipNetToMediaPhysAddress'
         if self.vendor == 'ubiquiti':
             return False
         else:
-            print(self.macs, len(self.interfaces))
+            print('No vendor established for:', self.macs)
         responses = self.snmpwalk(mib)
         arps = []
         for response in responses:
@@ -288,6 +320,7 @@ class Host(dict):
                 if not mac.local and not ip.local:
                     # See if we already have this data somewhere.
                     self.network.addHostByIp(ip, mac=mac)
+                    self.network.add_edge(ip, mac, etype='interface')
             except AssertionError:
                 # Malformed input is to be ignored.
                 print('malformed input:', response.value, response.oid_index)
@@ -300,118 +333,40 @@ class Host(dict):
         macrs = self.snmpwalk(macmib)
 
         # The MAC address tells us the vendor, which determines some logic.
-        keyedmacs = {}
-        vendor = None
         for macr in macrs:
-            index = macr.oid_index
             try:
                 mac = Mac(macr.value, encoding='utf-16')
-                if not mac.local:
-                    keyedmacs[index] = mac
-                    if mac.vendor:
-                        vendor = mac.vendor
+                ifnum = macr.oid_index
+                self.addAddress(mac, ifnum=ifnum)
             except InputError:
+                # Empty interfaces are of no interest.
                 if len(macr.value) > 0:
+                    # But if they're actually malformed, I want to know.
                     print('invalid mac:', macr.value)
 
-        if vendor == 'ubiquiti':
+        if self.vendor == 'ubiquiti':
             # Ubiquity devices don't reply to IF-MIB requests for ip addresses,
             # but they will give the data through a web portal.
             interfaces = self.getInterfacePage()
         else:
-            # Other hosts are mostly compliant to the IF-MIB.
+            # Other hosts are mostly compliant with the IF-MIB.
             ipmib = '1.3.6.1.2.1.4.20.1.2'
             iprs = self.snmpwalk(ipmib)
 
-            keyedips = {}
             for ipr in iprs:
                 try:
-                    # Ips are many-to-one to interfaces, so gotta be a list.
                     ip = Ip(ipr.oid_index)
-                    if not ip.startswith('127.'):
-                        keyedips[ipr.value].append(ip)
-                except KeyError:
-                    # New key, record.
-                    keyedips[ipr.value] = [ip]
+                    ifnum = ipr.value
+                    self.addAddress(ip, ifnum=ifnum)
                 except InputError:
-                    if len(ipr.oid_index) > 0:
-                        print('invalid ip:', ipr.oid_index)
-
-            # Mac addresses are unique to interfaces, so build the relationship.
-            interfaces = {}
-            for key, mac in keyedmacs.items():
-                try:
-                    interfaces[mac] |= set(keyedips[key])
-                    # Clear this out, because there might be IPs without macs.
-                    # ...somehow...
-                    del keyedips[key]
-                    #print('Interface', mac, '=', interfaces[mac])
-                except KeyError:
-                    # If this works, then the MAC is new.
-                    try:
-                        interfaces[mac] = set(keyedips[key])
-                    except KeyError:
-                        # There are no ips for that MAC.
-                        interfaces[mac] = set()
-            # Now, go through for any IPs that weren't assigned, and add them.
-            for ips in keyedips.values():
-                interface = None
-                newips = []
-                for ip in ips:
-                    if ip in self.ips:
-                        interface = self.network.getInterface(ip)
-                    else:
-                        print('IP detected without associated MAC:', ip)
-                        newips.append(ip)
-                if not interface:
-                    interface = Interface(self)
-                for ip in newips:
-                    interface.add_ip(ip)
-
-        # Now, we are going to assume that we have just obtained an
-        # authoritative list of all interfaces for this host, so we're 
-        # going to clear out everything else, since it might be old data.
-        print('Adding', len(interfaces), 'interfaces...')
-        for mac, ips in interfaces.items():
-            if not mac in self.macs:
-                print('Adding interface:', mac, end=' ')
-                # If we don't have this MAC address associated with this host,
-                # then we haven't scanned it in its current state. Wipe out 
-                # all other data regarding the IPs and MAC address.
-                interface = Interface(self)
-                self.network.add_edge(interface, self)
-                # In case the MAC was somewhere else in the network.
-                self.network.purgeConnections(mac)
-                self.network.add_edge(interface, mac)
-                #print('Added interface:', mac)
-            else:
-                print('Confirming old interface:', mac, end=' ')
-                # The interface is good. Justs double-check the IP addresses.
-                interface = self.network.getUnique(mac, ntype=Interface)
-                for ip in interface.ips:
-                    if not ip in ips:
-                        # If an IP didn't show up, that's not right.
-                        print('Previously observed interface', ip, 'missing.')
-                        self.network.node[ip]['status'] == 'bad'
-                        #print('\tPurged IP:', ip)
-            for ip in ips:
-                # In case this IP was somewhere else in the network.
-                self.network.purgeConnections(ip)
-                self.network.add_edge(interface, ip)
-                print(ip, end=' ')
-            print('\nThere are presently', len(self.interfaces), 'interfaces.') 
-
-        return True
+                    print('invalid ip:', ip)
             
     def print(self):
         try:
             print('Host ' + self.hostname + ':')
         except TypeError:
             # Hostname is not set.
-            print('Host:')
-        #for interface in self.interfaces:
-        #    interface.print()
-        print('Discovered', len(self.interfaces), 'interfaces.')
+            pass
 
 class Interface(str):
     def __init__(self, host):

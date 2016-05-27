@@ -12,7 +12,10 @@ import Toolbox
 
 class Network(nx.Graph):
     def configure(self, config):
+        # Community strings for SNMP
         self.communities = config['network']['communities']
+        # Subnets that shouldn't be scanned.
+        self.inaccessiblenets = config['network']['inaccessiblenets']
 
     def findConnections(self, node, etype=None, ntype=None):
         # This seems like it should be a builtin, but whatever. 
@@ -44,6 +47,12 @@ class Network(nx.Graph):
     def purgeConnections(self, node, etype=None, ntype=None):
         for edge in self.findConnections(node, etype=etype, ntype=ntype):
             self.remove_edge(edge[0], edge[1])
+
+    def removeSafely(self, node):
+        try:
+            self.remove_node(node)
+        except nx.exception.NetworkXError:
+            pass
 
     def findAdj(self, node, ntype=None, etype=None):
         # Returns a list of connected nodes that are of the correct type.
@@ -120,33 +129,24 @@ class Network(nx.Graph):
             return node
         return None
 
-    def typedNeighbors(self, node, ntype, desc=False):
+    def typedNeighbors(self, node, ntype):
         try:
-            if not desc:
-                return [n for n in self.neighbors(node) if type(n) == ntype]
+            return [n for n in self.neighbors(node) if type(n) == ntype]
         except nx.exception.NetworkXError:
-            return None
+            return []
+
 
     def addHostByIp(self, ip, mac=False):
         # Validation
         ip = Ip(ip)
-        interfaces = self.typedNeighbors(ip, Interface)
-        if interfaces:
-            # We already know about this.
-            interface = interfaces[0]
-            print(ip)
-            print('l1', self.neighbors(ip))
-            for neighbor in self.neighbors(ip):
-                print('l2', self.neighbors(neighbor))
-            print('hostname:',interface.host.hostname)
-            return self.typedNeighbors(interface, Host)[0]
-        else:
-            # We don't know about it, initialize it.
-            host = Host(self)
-            interface = Interface(host)
-            interface.add_ip(ip)
+        # If there is already a host, do nothing.
+        host = self.typedNeighbors(ip, Host)
+        if not host:
+            # Otherwise, make one.
             if mac:
-                interface.mac = mac
+                host = Host(self, ip=ip, mac=mac)
+            else:
+                host = Host(self, ip=ip)
         return host
 
     @property
@@ -166,7 +166,7 @@ class Network(nx.Graph):
                 host.scanInterfaces()
                 host.print()
 
-                print(len(host.interfaces), 'interfaces discovered.')
+                print(len(host.addresses), 'interfaces discovered.')
                 if not host.vendor == 'ubiquiti':
                     print('Scanning ARP...', end=' ')
                     arps = host.scanArpTable()
