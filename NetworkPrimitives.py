@@ -64,7 +64,9 @@ class Ip(str):
             pass
         elif encoding == 'snmp':
             # Returns from SNMP come with a leading immaterial number.
-            address = '.'.join(address.split('.')[1:])
+            print('Pre-encoded:', address)
+            address = '.'.join(address.split('.')[-4:])
+            print('Post-encoded:', address)
         else:
             # Means invalid encoding passed.
             raise Exception('Improper encoding passed with IP address')
@@ -82,7 +84,7 @@ class Ip(str):
             ipStr = '.'.join([str(b) for b in ipBytes])
             # Make sure that it has four octets, and that we haven't lost anything.
             if len(ipBytes) != 4 or ipStr != address:
-                raise InputError('Improper string submitted for IP address')
+                raise InputError('Improper string', address, ' submitted for IP address')
         except ValueError:
             raise InputError('Not an IP address:' + str(address))
         # Sound like everything's fine!
