@@ -194,7 +194,8 @@ class Network(nx.Graph):
             #nx.draw(self, nx.spring_layout(self), node_size=3, node_color='yellow', font_size=6)
             #plt.tight_layout()
             #plt.savefig('graph.png', format='PNG')
-            with open('network.json', 'w') as outfile:
-                outfile.write(json.dumps(json_graph.node_link_data(self)))
+            #with open('network.json', 'w') as outfile:
+            #    outfile.write(json.dumps(json_graph.node_link_data(self)))
+            nx.write_gml(self, 'network.gml', stringizer=Toolbox.stringize)
             hosts += [h for h in self.hosts if h.updated < timestamp]
     

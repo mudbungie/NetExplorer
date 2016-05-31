@@ -1,6 +1,8 @@
 **.conf
+**.gml
 **.core
 .**.swp
 **.pyc
 **.json
+**.png
 __pycache__/**

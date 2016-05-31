@@ -16,7 +16,7 @@ import geocoder
 from requests.packages.urllib3.exceptions import InsecureRequestWarning
 requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
 
-class Host(dict):
+class Host:
     def __init__(self, network, ip=None, mac=None):
         self.serial = hash(str(uuid.uuid4()))
         self.network = network
@@ -125,7 +125,7 @@ class Host(dict):
         try:
             for ip in self.ips:
                 edge = self.network[self][ip]
-                if 'mgmnt' in edge and edge['mgmnt'] == True:
+                if 'mgmnt' in edge and edge['mgmnt'] == 1:
                     return ip
             # Unless we don't know one.
         except TypeError:
@@ -133,9 +133,13 @@ class Host(dict):
             pass
         return False
     def setmgmntip(self, ip, isit):
-        self.network[self][ip]['mgmnt'] = isit
+        if isit:
+            self.network[self][ip]['mgmnt'] = 1
+        else:
+            self.network[self][ip]['mgmnt'] = 0
 
     def addAddress(self, address, ifnum=None):
+        # Add an IP or MAC address.
         if not address.local:
             if address in self.addresses:
                 # Add the ifnum, in case it's not there.
@@ -191,7 +195,7 @@ class Host(dict):
             except easysnmp.exceptions.EasySNMPTimeoutError:
                 # Either the community string is wrong, or the address is dead.
                 print('No response on', ip, 'with', community)
-                self.community = False
+                self.community = None
                 self.setmgmntip(ip, False)
                 pass
             return False
@@ -308,13 +312,13 @@ class Host(dict):
         try:
             responses = self.snmpwalk(mib)
         except NonResponsiveError:
-            return False
+            return None
         try:
             # Take the first response.
             r = responses.pop()
         except AttributeError:
             # Responses empty
-            return False
+            return None
         if indexInstead:
             return r.oid_index
         return r.value
@@ -396,6 +400,9 @@ class Host(dict):
                     self.addAddress(ip, ifnum=ifnum)
                 except InputError:
                     print('invalid ip:', ip)
+
+    def to_JSON(self):
+        return json.dumps(self.__hash__())
             
     def print(self):
         try:

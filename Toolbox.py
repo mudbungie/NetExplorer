@@ -22,7 +22,10 @@ def ipInNetworks(ip, networks):
         if ip in ipaddress.ip_network(network):
             return True
     return False
-            
+
+def stringize(data):
+    # Always returns a string.
+    return str(data)
 
 # Exceptions
 
