@@ -9,8 +9,8 @@ import requests
 import json
 import time
 from datetime import datetime
-import time
 import uuid
+import geocoder
 
 # Disable security warnings.
 from requests.packages.urllib3.exceptions import InsecureRequestWarning
@@ -96,6 +96,24 @@ class Host(dict):
             if mac.vendor:
                 return mac.vendor
         return None
+
+    @property
+    def location(self):
+        try:
+            return self.network.node[self]['location']
+        except KeyError:
+            return None
+
+    @property
+    def coords(self):
+        # Geocoords lookup to get address for host.
+        return geocoder.google(self.location).latlng
+    @property
+    def lat(self):
+        return self.coords[0]
+    @property
+    def lng(self):
+        return self.coords[1]
 
     @property
     def arpNeighbors(self):
@@ -286,19 +304,37 @@ class Host(dict):
             datum = data.pop()
         return bridges
 
-    def scanHostname(self):
-        mib = '1.3.6.1.2.1.1.5'
+    def getSingleSNMPValue(self, mib, indexInstead=False):
         try:
             responses = self.snmpwalk(mib)
         except NonResponsiveError:
             return False
         try:
-            hostname = responses.pop().value
+            # Take the first response.
+            r = responses.pop()
         except AttributeError:
-            # The responses came back empty.
+            # Responses empty
             return False
+        if indexInstead:
+            return r.oid_index
+        return r.value
+
+    def scanHostname(self):
+        mib = '1.3.6.1.2.1.1.5'
+        hostname = self.getSingleSNMPValue(mib)
+        # Sanitize
+        if hostname:
+            hostname = hostname.encode('ascii', 'ignore').decode()
         self.network.node[self]['hostname'] = hostname
         return hostname
+
+    def scanLocation(self):
+        mib = '1.3.6.1.2.1.1.6'
+        location = self.getSingleSNMPValue(mib)
+        if location:
+            location = location.encode('ascii', 'ignore').decode()
+        self.network.node[self]['location'] = location
+        return location
         
     def scanArpTable(self):
         mib = 'ipNetToMediaPhysAddress'

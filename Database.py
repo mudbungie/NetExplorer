@@ -172,6 +172,8 @@ class Network(nx.Graph):
                     arps = host.scanArpTable()
                     print(len(arps), 'arp records discovered.')
                 #host.print()
+                host.scanLocation()
+                print('Host located at:', host.location, 'coords:', host.coords)
                 print('Host\'s new timestamp:', host.updated)
                 print('There are', len(self.nodes()), 'nodes.')
                 print('Of which', len([a for a in self.nodes() if type(a) == Host]), 'are hosts.')
