@@ -9,6 +9,7 @@ from NetworkPrimitives import Mac, Ip, Netmask
 from Host import Host, Interface
 from Exceptions import *
 import Toolbox
+import os
 
 class Network(nx.Graph):
     def configure(self, config):
@@ -151,6 +152,7 @@ class Network(nx.Graph):
 
     @property
     def hosts(self):
+        hosts = [h for h in self.nodes() if type(h) == Host]
         return [h for h in self.nodes() if type(h) == Host]
 
     def arpCrawl(self, timestamp=Toolbox.timestamp()):
@@ -184,18 +186,15 @@ class Network(nx.Graph):
         hosts = self.hosts
         # Sort the list so that the least recently updated is last.
         for host in hosts:
-            # We're going to continually update the hosts list until we've
-            # scanned the entire network, in
-            #hostsort = sorted(self.hosts, key=lambda h: self.node[h]['updated'], 
-            #    reverse=True)
-            #hosts = [h for h in hostsort if h.updated < timestamp]
+            # Continuously scan the entire network.
             # Take the oldest entry.
             scan(host)
             #nx.draw(self, nx.spring_layout(self), node_size=3, node_color='yellow', font_size=6)
             #plt.tight_layout()
             #plt.savefig('graph.png', format='PNG')
-            #with open('network.json', 'w') as outfile:
-            #    outfile.write(json.dumps(json_graph.node_link_data(self)))
-            nx.write_gml(self, 'network.gml', stringizer=Toolbox.stringize)
+
+            # Write safely
+            nx.write_gml(self, 'network.gml.tmp', stringizer=Toolbox.stringize)
+            os.rename('network.gml.tmp', 'network.gml')
             hosts += [h for h in self.hosts if h.updated < timestamp]
     

@@ -17,8 +17,8 @@ from requests.packages.urllib3.exceptions import InsecureRequestWarning
 requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
 
 class Host:
-    def __init__(self, network, ip=None, mac=None):
-        self.serial = hash(str(uuid.uuid4()))
+    def __init__(self, network, ip=None, mac=None, hash=None):
+        self.serial = uuid.uuid4().int
         self.network = network
         # Set the timestamp for unix epoch, unless it was set during init.
         self.network.add_node(self)
@@ -38,16 +38,8 @@ class Host:
         print(self.ips)
 
     def __str__(self):
-        if self.hostname:
-            return self.hostname
-        else:
-            try:
-                return 'Host:' + self.macs[0]
-            except IndexError:
-                try:
-                    return 'Host:' + self.ips[0]
-                except IndexError:
-                    return str(self.__hash__())
+        return 'Host:' + str(self.serial)
+
 
     def __hash__(self):
         return self.serial
@@ -240,7 +232,9 @@ class Host:
                     try:
                         websess.get(loginurl, verify=False, timeout=2)
                         print('HTTPS unavailable for:', ip)
-                    except requests.exceptions.ConnectTimeout:
+                    except (requests.exceptions.ConnectTimeout, 
+                        requests.exceptions.ConnectionError,
+                        requests.exceptions.ReadTimeout):
                         # It's inaccessable. 
                         print('No connections available for', ip)
                         return False
