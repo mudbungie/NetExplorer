@@ -227,7 +227,8 @@ class Host:
                 try:
                     # Open the session, to get a session cookie.
                     websess.get(loginurl, verify=False, timeout=2)
-                except requests.exceptions.ConnectionError:
+                except (requests.exceptions.ConnectionError, 
+                    requests.exceptions.ReadTimeout):
                     loginurl, statusurl = urlsByProtocol('http', ip, path)
                     try:
                         websess.get(loginurl, verify=False, timeout=2)
