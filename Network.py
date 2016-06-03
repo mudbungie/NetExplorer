@@ -17,6 +17,7 @@ class Network(nx.Graph):
         self.communities = config['network']['communities']
         # Subnets that shouldn't be scanned.
         self.inaccessiblenets = config['network']['inaccessiblenets']
+        self.credentials = list(config['network']['credentials'].values())
 
     def findConnections(self, node, etype=None, ntype=None):
         # This seems like it should be a builtin, but whatever. 

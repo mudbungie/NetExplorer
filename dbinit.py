@@ -2,7 +2,7 @@
 # interacting with.
 
 from Config import config
-from Database import Network
+from Network import Network
 from Router import Router
 from Host import Host
 from NetworkPrimitives import *

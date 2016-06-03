@@ -46,7 +46,13 @@ class Host:
 
     @property
     def ips(self):
-        return sorted(self.network.typedNeighbors(self, Ip))
+        if self.mgmntip:
+            # Always return management ips first.
+            ips = self.network.typedNeighbors(self, Ip)
+            ips.remove(self.mgmntip)
+            return [self.mgmntip] + ips
+        else:
+            return sorted(self.network.typedNeighbors(self, Ip))
 
     @property
     def macs(self):
@@ -115,7 +121,7 @@ class Host:
     def mgmntip(self):
         # An IP address that is confirmed to work with this host.
         try:
-            for ip in self.ips:
+            for ip in self.network.typedNeighbors(self, Ip):
                 edge = self.network[self][ip]
                 if 'mgmnt' in edge and edge['mgmnt'] == 1:
                     return ip
@@ -199,7 +205,7 @@ class Host:
                 results = scan(self.mgmntip, self.community)
                 if results:
                     return results
-            results = scanAllCommunities(ip)
+            results = scanAllCommunities(self.mgmntip)
             if results:
                 return results
         # If we have no known-good settings, we just iterate over everything.
@@ -212,54 +218,56 @@ class Host:
 
     def getStatusPage(self, path, tries=0):
         # Negotiates HTTP auth and JSON decoding for getting data from 
-        # the web interface. 
-        def urlsByProtocol(protocol, ip, path):
-            loginurl = protocol + '://' + ip + '/login.cgi?url=/' + path
-            statusurl = protocol + '://' + ip + '/' + path
-            return loginurl, statusurl
+        # the web interface. Functions by requesting IPs until something gives
+        # a non-empty response, then authenticates until it gives the correct
+        # response. 
 
-        with requests.Session() as websess:
-            for ip in self.ips:
-                payload = { 'username':config['network']['radios']['unames'],
-                            'password':config['network']['radios']['pwords']}
-                loginurl, statusurl = urlsByProtocol('https', ip, path)
-                # In case https is unavailable.
+        # HTTPS redirect is managed automatically in applicable devices.
+
+        # Mostly got its own function for exception handling.
+        def webrequest(verb, session, url, data=None, tries=0):
+            if tries < 3:
                 try:
-                    # Open the session, to get a session cookie.
-                    websess.get(loginurl, verify=False, timeout=2)
+                    if verb == 'get':
+                        return session.get(url, verify=False, timeout=2)
+                    elif verb == 'post':
+                        return session.post(url, data=data, verify=False, 
+                            timeout=2)
+                # Requests has like a billion error codes...
                 except (requests.exceptions.ConnectionError, 
-                    requests.exceptions.ReadTimeout):
-                    loginurl, statusurl = urlsByProtocol('http', ip, path)
-                    try:
-                        websess.get(loginurl, verify=False, timeout=2)
-                        print('HTTPS unavailable for:', ip)
-                    except (requests.exceptions.ConnectTimeout, 
-                        requests.exceptions.ConnectionError,
-                        requests.exceptions.ReadTimeout):
-                        # It's inaccessable. 
-                        print('No connections available for', ip)
-                        return False
-                # Authenticate, which makes that cookie valid.
+                    requests.exceptions.ReadTimeout, 
+                    requests.exceptions.ConnectTimeout):
+                        tries += 1
+                        return webrequest(verb, session, url, data, tries)
+            return False
+
+        def iterCreds(url, i=0):
+            # Iterate through the list of credentials and return either a 
+            # working json dump or False.
+            with requests.Session() as websess:
+                # Make an initial request to establish session cookies, get 
+                # redirected URLS, etc.
+                a = webrequest('get', url)
                 try:
-                    p = websess.post(loginurl, data=payload, verify=False, 
-                        timeout=2)
-                    # Get ze data.
-                    g = websess.get(statusurl, verify=False, timeout=2)
-                except requests.exceptions.ConnectionError:
-                    tries += 1
-                    if tries <= 3:
-                        return self.getStatusPage(path, tries)
+                    credential = self.network.credentials[i]
+                except KeyError:
+                    # We've tried all the keys. Fail out.
                     return False
+                b = webrequest('post', websess, a.url, data=credential)
                 try:
-                    # It all comes back as JSON, so parse it.
-                    return json.loads(g.text)
+                    return json.loads(b.text)
                 except ValueError:
-                    # When the json comes back blank.
-                    print('Blank JSON at:', ip)
-                    tries += 1
-                    if tries <= 3:
-                       return self.getStatusPage(path, tries) 
-                    return False
+                    # Not valid JSON. Probably not authenticated.
+                    # Recurse
+                    return itercreds(url, i=i+1)
+
+            # The entirety of the actual function.
+            for ip in self.ips:
+                statusurl = 'http://' + ip + '/' + path
+                status = iterCreds(statusurl)
+                if status:
+                    return status
+            return False
 
     def getInterfacePage(self):
         # Get the list of network interfaces from the web interface.
