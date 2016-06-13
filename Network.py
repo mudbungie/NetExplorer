@@ -1,15 +1,20 @@
-# Networkx-based graph database
-
-import networkx as nx
-from networkx.readwrite import json_graph
-import matplotlib.pyplot as plt
-import json
+# Network abstraction for handling nodes and edges stored in the database.
 
 from NetworkPrimitives import Mac, Ip, Netmask
 from Host import Host, Interface
 from Exceptions import *
 import Toolbox
 import os
+
+import Database
+
+class Network():
+    def nodes():
+        with Database.Session() as s:
+            return s.query(Node)
+    def edges():
+        with Database.Session() as s:
+            return s.query(Edge)
 
 class Network(nx.Graph):
     def configure(self, config):

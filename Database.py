@@ -17,16 +17,16 @@ class Node(Base):
     nodeid = Column(Integer, primary_key=True)
     value = Column(String(100))
     nodetype = Column(String(25), nullable=False)
-    attributes = Column(String(150)) # JSON dump of attributes.
 
     @property
-    def attr(self):
-        return json.loads(self.attributes)
-    @attr.setter(self, attr):
-        session = Session()
-        self.attributes = json.dumps(attr)
-        session.add(self)
-        session.commit()
+    def attrs(self, *keys):
+        if not keys:
+            with Session() as s:
+                return s.query(Attribute).filter(nodeid == self.nodeid)
+        else:
+            
+    def addattr(self, key, value):
+        attr = Atribute(nodeid=self.nodeid, key=key, value=value)
     
     @property
     def edges(self):
@@ -37,7 +37,18 @@ class Node(Base):
     @property
     def neighbors(self):
         return [node for edge.nodes in self.edges if node.nodeid != self.nodeid]
-    
+
+    def delete():
+        # Deletes connected attributes and edges, then itself.
+        for attribute in self.attr:
+            attribute.delete()
+        for edge in self.edges:
+            edge.delete()
+        with Session() as s:
+            s.delete(self)
+            s.commit()
+        return True
+
 class Edge(Base):
     # An edge from the network. Connects two nodes.
     __tablename__ = 'edges'
@@ -46,20 +57,36 @@ class Edge(Base):
     node2 = Column(ForeignKey('nodes.nodeid'))
     nodetype = Column(String(25), nullable=False)
     
-    nodes = set(node1, node2)
+    @property
+    def nodes(self):
+        return set(self.node1, self.node2)
 
-class NodeAttribute(Base):
+    @property
+    def attr(self):
+        with Session() as s:
+            return s.query(Attribute).filter(edgeid == self.edgeid)
+    
+    def delete():
+        # Delete connected attributes and self.
+        for attribute in self.attr:
+            attribute.delete()
+        with Session() as s:
+            s.delete(self)
+            s.commit()
+
+class Attribute(Base):
     # Values for nodes.
-    __tablename__ = 'nodeattributes'
-    node = Column(ForeignKey('nodes.value'))
+    __tablename__ = 'attributes'
+    attributeid = Column(Integer, primary_key=True)
+    # Will only have one or the other of these.
+    edgeid = Column(ForeignKey('edges.edgeid'))
+    nodeid = Column(ForeignKey('nodes.nodeid'))
+    # Actual contents:
     key = Column(String(20))
     value = Column(String(50))
 
-class EdgeAttribute(Base):
-    # Values for edges.
-    __tablename__ = 'edgeattributes'
-    edge = Column(ForeignKey('edges.value'))
-    key = Column(String(20))
-    value = Column(String(50))
-
+    def delete():
+        with Session() as s:
+            s.delete(self)
+            s.commit()
 
