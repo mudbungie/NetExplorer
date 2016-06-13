@@ -3,3 +3,12 @@
 # This is the web interface for the netexplorer.
 # Currently, we're updating the network completely separately, and this simply
 # reads that data to respond to requests. 
+
+import bottle
+
+nebottle = bottle.Bottle()
+
+@nebottle.route('/')
+def index():
+    
+    return Interface.mainpage()    

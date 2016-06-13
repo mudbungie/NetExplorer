@@ -12,38 +12,13 @@ from datetime import datetime
 import uuid
 import geocoder
 
+import Database
+
 # Disable security warnings.
 from requests.packages.urllib3.exceptions import InsecureRequestWarning
 requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
 
-class Host:
-    def __init__(self, network, ip=None, mac=None, hash=None):
-        self.serial = uuid.uuid4().int
-        self.network = network
-        # Set the timestamp for unix epoch, unless it was set during init.
-        self.network.add_node(self)
-        self.network.node[self]['updated'] = 0
-        self.community = None
-
-        # If supplied with an IP address or a MAC address, add those.
-        if ip:
-            if type(ip) != Ip:
-                ip = Ip(ip)
-            self.addAddress(ip)
-        if mac:
-            if type(mac) != Mac:
-                mac = Mac(mac)
-            self.addAddress(mac)
-
-        print(self.ips)
-
-    def __str__(self):
-        return 'Host:' + str(self.serial)
-
-
-    def __hash__(self):
-        return self.serial
-
+class Host(Database.Node):
     @property
     def ips(self):
         if self.mgmntip:
