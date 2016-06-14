@@ -8,13 +8,20 @@ import os
 
 import Database
 
-class Network():
-    def nodes():
+class Graph():
+    def nodes(nodetype=None):
+        if nodetype:
+            with Database.Session() as s:
+                return s.query(Node).filter(nodetype==nodetype)
         with Database.Session() as s:
             return s.query(Node)
     def edges():
         with Database.Session() as s:
             return s.query(Edge)
+
+class Network(Graph):
+    def hosts():
+        return self.nodes(nodetype='Host')
 
 class Network(nx.Graph):
     def configure(self, config):

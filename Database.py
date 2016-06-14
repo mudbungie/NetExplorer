@@ -16,17 +16,40 @@ class Node(Base):
     __tablename__  = 'nodes'
     nodeid = Column(Integer, primary_key=True)
     value = Column(String(100))
-    nodetype = Column(String(25), nullable=False)
+    attributes = relationship('Attribute')
 
+    # With no arguments, gives all attributes. With arguments, returns 
+    # any attributes that have matching keys.
     @property
     def attrs(self, *keys):
         if not keys:
             with Session() as s:
-                return s.query(Attribute).filter(nodeid == self.nodeid)
+                return s.query(Attribute).filter(nodeid == self.nodeid).all()
         else:
-            
+            attributes = []
+            for key in keys:
+                results = s.query(Attribute).\
+                    filter(and_(nodeid==self.nodeid, key==key)).all()
+                # Don't append None.
+                if results:
+                    attributes += results
+            return attributes
+
+    # Insert an attribute with key and value.    
     def addattr(self, key, value):
         attr = Atribute(nodeid=self.nodeid, key=key, value=value)
+        with Session() as s:
+            s.add(attr)
+            s.commit()
+    # Delete attributes by key. 
+    def delattr(self, key)
+        with Session() as s:
+            s.query(Attribute).filter(and_(nodeid==self.nodeid, key==key)).\
+                delete()
+            s.commit()
+
+    @property(self):
+        return self.attrs('nodetype')[0]
     
     @property
     def edges(self):
@@ -47,7 +70,6 @@ class Node(Base):
         with Session() as s:
             s.delete(self)
             s.commit()
-        return True
 
 class Edge(Base):
     # An edge from the network. Connects two nodes.
@@ -55,8 +77,24 @@ class Edge(Base):
     edgeid = Column(Integer, primary_key=True)
     node1 = Column(ForeignKey('nodes.nodeid'))
     node2 = Column(ForeignKey('nodes.nodeid'))
-    nodetype = Column(String(25), nullable=False)
-    
+    attributes = relationship('Attribute')
+    # With no arguments, gives all attributes. With arguments, returns 
+    # any attributes that have matching keys.
+    @property
+    def attrs(self, *keys):
+        if not keys:
+            with Session() as s:
+                return s.query(Attribute).filter(edgeid == self.edgeid).all()
+        else:
+            attributes = []
+            for key in keys:
+                results = s.query(Attribute).\
+                    filter(and_(edgeid==self.edgeid, key==key)).all()
+                # Don't append None.
+                if results:
+                    attributes += results
+            return attributes
+
     @property
     def nodes(self):
         return set(self.node1, self.node2)
@@ -65,7 +103,7 @@ class Edge(Base):
     def attr(self):
         with Session() as s:
             return s.query(Attribute).filter(edgeid == self.edgeid)
-    
+
     def delete():
         # Delete connected attributes and self.
         for attribute in self.attr:
