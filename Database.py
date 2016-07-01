@@ -36,14 +36,16 @@ class Node(Base):
     # This is implemented only because the entire concept of a session is dumb.
     def attrs(self, *args):
         s = Session()
+        s.add(self)
         if args:
             key = args[0]
             diagprint(test, key)
             q = s.query(Attribute).filter(and_(Attribute.node_id==self.node_id, 
-                Attribute.key==key))
+                Attribute.key==key)).all()
         else:
-            q = s.query(Attribute).filter_by(node_id=self.node_id)
-        return [a for a in q.all()]
+            q = s.query(Attribute).filter_by(node_id=self.node_id).all()
+        s.close()
+        return q
     # For unique qualities.
     def attr(self, *args):
         # Given one argument, return an attribute that is keyed appropriately.
@@ -72,13 +74,23 @@ class Node(Base):
         attr.value = value
     def setAttr(self, key, value):
         s = Session()
-        s.add(self)
         try:
             self.updateAttr(s, key, value)
         except IndexError:
             self.addAttr(s, key, value)
         s.commit()
         s.close()
+
+    def edges(self, *args):
+        s = Session()
+        if args:
+            edgetype = args[0]
+            q = s.query(Edge).filter(and_(Edge.edgetype==edgetype,
+                or_(Edge.node1==self.node_id, Edge.node2==self.node_id))).all()
+        else:
+            q = s.query(Edge).filter(or_(Edge.node1==self.node_id, 
+                Edge.node2==self.node_id)).all()
+        return q
 
     @property
     def neighbors(self):
