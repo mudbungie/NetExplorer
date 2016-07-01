@@ -21,29 +21,42 @@ requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
 class Host(Database.Node):
     @property
     def ips(self):
-        if self.mgmntip:
-            # Always return management ips first.
-            ips = self.network.typedNeighbors(self, Ip)
-            ips.remove(self.mgmntip)
-            return [self.mgmntip] + ips
-        else:
-            return sorted(self.network.typedNeighbors(self, Ip))
-
+        return self.typedneighbors('ip')
     @property
     def macs(self):
-        return sorted(self.network.typedNeighbors(self, Mac))
-
+        return self.typedneighbors('mac')
+    @property
+    def hostname(self):
+        return self.attr('hostname')
+    @property
+    def mgmntip(self):
+        for ip in self.ips:
+            if ip.mgmnt:
+                return ip
+        return None
     @property
     def community(self):
-        return self.network.node[self]['community']
+        return self.attr('community')
     @community.setter
     def community(self, community):
-        self.network.node[self]['community'] = community
+        # If there is already a community, and it's different, overwrite it.
+        if self.community and self.community.value != community:
+            with Database.Session() as s:
+                self.community.value = community
+                s.add(self.community)
+                s.commit()
+        else:
+            attr = Database.Attribute(key='community', value=community)
+            with Database.Session() as s:
+                
+                
+        
+            
+        attr = Database.Attribute(key='community', value=community)
+        self.attributes.append(attr)
 
-    @property
-    def addresses(self):
-        # Aggregation of all MAC and IP addresses
-        return self.macs + self.ips
+
+
 
     @property
     def hostname(self):

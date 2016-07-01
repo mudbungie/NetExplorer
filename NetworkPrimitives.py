@@ -5,8 +5,10 @@ from Exceptions import InputError
 import Toolbox
 import re
 from binascii import hexlify
+import Database
 
-class Mac(str):
+class Mac(Database.Node):
+    
     def __new__(cls, mac, encoding=None):
         # Usually, I'll be passing a string, but not always, so encodings.
         if not encoding:
