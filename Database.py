@@ -1,13 +1,17 @@
 # I actually want to have a real database backend for write concurrency.
 # Easier than writing a thread handler.
 
-# I'm honestly not sure why all of these imports are necessary.
+# I'm honestly not sure why all of these imports have to be explicit.
 import sqlalchemy as sqla
-from sqlalchemy import *
+from sqlalchemy import * # I seriously can't use sqla.* on some things? Why?
 from sqlalchemy.orm import sessionmaker, relationship
 from sqlalchemy.ext.declarative import declarative_base
 import os
 from datetime import datetime, timedelta
+
+from Toolbox import diagprint
+
+#FIXME do all list comprehensions with generators, dummy.
 
 test = True
 if test:
@@ -25,12 +29,18 @@ class Node(Base):
     value = Column(String(100))
     nodetype = Column(String(20))
     attributes = relationship('Attribute')
-    edges = relationship('Edge', primaryjoin='or_(Edge.node1_id==Node.node_id,'
+    _edges = relationship('Edge', primaryjoin='or_(Edge.node1_id==Node.node_id,'
         'Edge.node2_id==Node.node_id)')
 
     # Return only the attributes that match the provided key.
-    def attrs(self, key):
-        return [a.value for a in self.attributes if a.key == key]
+    # This is implemented only because the entire concept of a session is dumb.
+    def attrs(self, *key):
+        s = Session()
+        if key:
+            q = s.query(Attribute).filter_by(and_(node_id=self.node_id, key=key))
+        else:
+            q = s.query(Attribute).filter_by(node_id=self.node_id)
+        return [a for a in q.all()]
     # For unique qualities.
     def attr(self, *args):
         # Given one argument, return an attribute that is keyed appropriately.
@@ -39,45 +49,47 @@ class Node(Base):
         key = args[0]
         if len(args) == 1:
             try:
-                return [attr for attr in self.attributes if
-                    attr.key == key][0].value
+                return self.attrs(key)[0].value
             except IndexError:
                 return None
         elif len(args) == 2:
-            # If there is an existing attribute, update it, otherwise, insert.
-            value = args[1]
-            if self.attr(key):
-                print('Existing attribute found, updating value.')
-                s = Session()
-                attr = [a for a in self.attributes if a.key == key][0]
-                s.add(attr)
-                attr.value = value
-                s.commit()
-            else:
-                print('new')
-                self.addAttr(key, value)                
+            # value = args[1] # For clarity
+            self.setAttr(key, args[1])
         else:
             raise TypeError('Node.attr() takes 1-2 arguments.')
-    
-    @property
-    def neighbors(self):
-        return set([node for edge.nodes in self.edges if \
-            node.nodeid != self.nodeid])
-    @property
-    def typedneighbors(nodetype):
-        return [n for n in self.neighbors if n.nodetype == nodetype]
 
+    # Internal. Use setAttr.
     def addAttr(self, key, value):
         attr = Attribute(key=key, value=value, node_id=self.node_id)
         s = Session()
         s.add(attr)
         s.commit()
+    # Internal. Use setAttr.
+    def updateAttr(self, key, value):
+        attr = self.attrs(key)[0]
+        s = Session()
+        s.add(attr)
+        attr.value = value
+        s.commit()
+    def setAttr(self, key, value):
+        try:
+            self.updateAttr(key, value)
+        except IndexError:
+            self.addAttr(key, value)
+
+    @property
+    def neighbors(self):
+        return set([node for edge.nodes in self._edges if \
+            node.nodeid != self.nodeid])
+    @property
+    def typedneighbors(nodetype):
+        return [n for n in self.neighbors if n.nodetype == nodetype]
 
     def delete():
         # Deletes connected attributes and edges, then itself.
         for attribute in self.attr:
             attribute.delete()
-        for edge in self.edges:
+        for edge in self._edges:
             edge.delete()
         with Session() as s:
             s.delete(self)
@@ -153,8 +165,9 @@ if __name__ == '__main__':
     s.commit()
     s.flush()
     n0.attr('0', '1')
-    print(n0.attr('0'))
+    print('Attribute value 0', n0.attr('0'))
     n0.attr('0', '2')
-    print(n0.attr('0'))
-    print(len(n0.attributes))
-    print(len(n0.edges))
+    print('Attribute value 0', n0.attr('0'))
+    print(len(n0.attrs()))
+    print(len(n0._edges))
+    print([v.value for v in s.query(Attribute).filter_by(node_id = '1').all()])

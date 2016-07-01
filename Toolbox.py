@@ -26,6 +26,12 @@ def ipInNetworks(ip, networks):
 class NonUniqueError(Exception):
     pass
 
+# Takes boolean that you have set globally, prints if true.
+def diagprint(diagnostic, string):
+    if diagnostic:
+        print(string)
+
+# String subclassing for validation and profit.
 class Mac(str):
     def __new__(cls, mac, encoding=None):
         # Usually, I'll be passing a string, but not always, so encodings.
