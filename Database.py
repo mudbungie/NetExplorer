@@ -34,10 +34,13 @@ class Node(Base):
 
     # Return only the attributes that match the provided key.
     # This is implemented only because the entire concept of a session is dumb.
-    def attrs(self, *key):
+    def attrs(self, *args):
         s = Session()
-        if key:
-            q = s.query(Attribute).filter_by(and_(node_id=self.node_id, key=key))
+        if args:
+            key = args[0]
+            diagprint(test, key)
+            q = s.query(Attribute).filter(and_(Attribute.node_id==self.node_id, 
+                Attribute.key==key))
         else:
             q = s.query(Attribute).filter_by(node_id=self.node_id)
         return [a for a in q.all()]
@@ -59,23 +62,23 @@ class Node(Base):
             raise TypeError('Node.attr() takes 1-2 arguments.')
 
     # Internal. Use setAttr.
-    def addAttr(self, key, value):
+    def addAttr(self, s, key, value):
         attr = Attribute(key=key, value=value, node_id=self.node_id)
-        s = Session()
         s.add(attr)
-        s.commit()
     # Internal. Use setAttr.
-    def updateAttr(self, key, value):
+    def updateAttr(self, s, key, value):
         attr = self.attrs(key)[0]
-        s = Session()
         s.add(attr)
         attr.value = value
-        s.commit()
     def setAttr(self, key, value):
+        s = Session()
+        s.add(self)
         try:
-            self.updateAttr(key, value)
+            self.updateAttr(s, key, value)
         except IndexError:
-            self.addAttr(key, value)
+            self.addAttr(s, key, value)
+        s.commit()
+        s.close()
 
     @property
     def neighbors(self):
@@ -163,7 +166,7 @@ if __name__ == '__main__':
     s.commit()
     s.add(n0)
     s.commit()
-    s.flush()
+    s.close()
     n0.attr('0', '1')
     print('Attribute value 0', n0.attr('0'))
     n0.attr('0', '2')
