@@ -28,7 +28,8 @@ class Node(Base):
     node_id = Column(Integer, primary_key=True)
     value = Column(String(100))
     nodetype = Column(String(20))
-    attributes = relationship('Attribute')
+    _attributes = relationship('Attribute')
+    # Seriously, I pass a string, which sqla interprets as Python? Hacky.
     _edges = relationship('Edge', primaryjoin='or_(Edge.node1_id==Node.node_id,'
         'Edge.node2_id==Node.node_id)')
 
@@ -86,19 +87,31 @@ class Node(Base):
         if args:
             edgetype = args[0]
             q = s.query(Edge).filter(and_(Edge.edgetype==edgetype,
-                or_(Edge.node1==self.node_id, Edge.node2==self.node_id))).all()
+                or_(Edge.node1==self, Edge.node2==self))).all()
         else:
-            q = s.query(Edge).filter(or_(Edge.node1==self.node_id, 
-                Edge.node2==self.node_id)).all()
+            q = s.query(Edge).filter(or_(Edge.node1==self, 
+                Edge.node2==self)).all()
+        s.close()
         return q
 
-    @property
-    def neighbors(self):
-        return set([node for edge.nodes in self._edges if \
-            node.nodeid != self.nodeid])
+    # Returns nodes connected by an edge. With arg, filters by the type of 
+    # edge.
+    def neighbors(self, *args):
+        if args:
+            edges = self.edges(args)
+        else:
+            edges = self.edges(args)
+        neighbors = set()
+        for edge in edges:
+            if edge.node1 != self:
+                neighbors.add(edge.node1)
+            else:
+                neighbors.add(edge.node2)
+        return neighbors
+
     @property
     def typedneighbors(nodetype):
-        return [n for n in self.neighbors if n.nodetype == nodetype]
+        
 
     def delete():
         # Deletes connected attributes and edges, then itself.
@@ -184,5 +197,6 @@ if __name__ == '__main__':
     n0.attr('0', '2')
     print('Attribute value 0', n0.attr('0'))
     print(len(n0.attrs()))
-    print(len(n0._edges))
+    print('n0 id', n0.node_id)
+    print(len(n0.edges()))
     print([v.value for v in s.query(Attribute).filter_by(node_id = '1').all()])
