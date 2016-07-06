@@ -100,18 +100,22 @@ class Node(Base):
         if args:
             edges = self.edges(args)
         else:
-            edges = self.edges(args)
+            edges = self.edges()
         neighbors = set()
+        s = Session()
         for edge in edges:
+            s.add(edge)
             if edge.node1 != self:
                 neighbors.add(edge.node1)
             else:
                 neighbors.add(edge.node2)
+        s.close()
         return neighbors
 
-    @property
-    def typedneighbors(nodetype):
-        
+    def typedneighbors(self, nodetype):
+    #FIXME This is an inefficient, hacky approach.
+        neighbors = self.neighbors()
+        return [n for n in self.neighbors() if n.nodetype == nodetype]
 
     def delete():
         # Deletes connected attributes and edges, then itself.
@@ -181,8 +185,8 @@ if __name__ == '__main__':
         pass
     Base.metadata.create_all(engine)
     s = Session()
-    n0 = Node(value='cats')
-    n1 = Node(value='dogs')
+    n0 = Node(value='cats', nodetype='pet')
+    n1 = Node(value='dogs', nodetype='pet')
     e = Edge(node1=n0, node2=n1)
     s.add(n0)
     s.add(n1)
@@ -199,4 +203,7 @@ if __name__ == '__main__':
     print(len(n0.attrs()))
     print('n0 id', n0.node_id)
     print(len(n0.edges()))
+    print(n0.neighbors())
+    print(n0.typedneighbors('pet'))
     print([v.value for v in s.query(Attribute).filter_by(node_id = '1').all()])
+    s = Session()

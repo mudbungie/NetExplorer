@@ -8,7 +8,18 @@ import os
 
 import Database
 
-class Graph():
+class Network:
+    def hosts(self): 
+        s = Database.Session()
+        hosts = s.query(Database.Node).filter_by(nodetype='host').all()
+        s.close()
+        return hosts
+
+class Host(Database.Node):
+    def 
+
+
+   Graph():
     def nodes(nodetype=None):
         if nodetype:
             with Database.Session() as s:
