@@ -206,4 +206,3 @@ if __name__ == '__main__':
     print(n0.neighbors())
     print(n0.typedneighbors('pet'))
     print([v.value for v in s.query(Attribute).filter_by(node_id = '1').all()])
-    s = Session()

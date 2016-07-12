@@ -4,39 +4,203 @@ from NetworkPrimitives import Mac, Ip, Netmask
 from Host import Host, Interface
 from Exceptions import *
 import Toolbox
+from Toolbox import diagprint
 import os
 
 import Database
 
+test = True
+
 class Network:
-    def hosts(self): 
+    # Returns objects as defined by the nodes, or just the record itself.
+    def _nodecategory(self, nodetype, cls=None):
         s = Database.Session()
-        hosts = s.query(Database.Node).filter_by(nodetype='host').all()
+        records = s.query(Database.Node).filter_by(nodetype=nodetype).all()
         s.close()
-        return hosts
+        if cls:
+            objs = []
+            for record in records:
+                objs.append(cls(record.value))
+            return records
+        else:
+            return records
 
-class Host(Database.Node):
-    def 
+    # The following are the all the typed objects that use _nodecategory.
+    def hosts(self): 
+        return self._nodecategory('host', cls=Host)
+    def ips(self):
+        return self._nodecategory('ip', cls=Ip)
+    def macs(self):
+        return self._nodecategory('mac', cls=Mac)
+    # The following are raw record access for the associated records.
+    def hostrs(self):
+        return self._nodecategory('host')
+    def iprs(self):
+        return self._nodecategory('ip')
+    def macrs(self):
+        return self._nodecategory('mac')
 
+    # List of IP addresses that don't have hosts. 
+    def orphanedIps():
+        return [ipr.value for ipr in self.iprs() if not 
+            ipr.typedneighbors('host')]
+    # Scan IP addresses that lack hosts. Good for bootstrapping.
+    def scanOrphans():
+        for orphan in self.orphanedIps():
+            results = orphan.scan()
+            # False if scan fails.
+            if results:
+                # If true, results is a dictionary of lists. 
+                # We'll compare, but first, cache to reduce DB load.
+                knownmacs = self.macrs()
+                knownips = self.ips()
+                host = False
+                # Add new data...
+                for mac in results['macs']:
+                    if mac not in knownmacs:
+                        self.addmac(mac)
+                        knownmacs.append(mac)
+                        diagprint(test, 'Discovered new mac %s', mac)
+                    else:   
+                        if
+                for ip in results['ips']:
+                    if ip not in ips:
+                        self.addip(ip)      
+                        knownips.append(ip)
+                        diagprint(test, 'Discovered new %s', ip)
 
-   Graph():
-    def nodes(nodetype=None):
-        if nodetype:
-            with Database.Session() as s:
-                return s.query(Node).filter(nodetype==nodetype)
-        with Database.Session() as s:
-            return s.query(Node)
-    def edges():
-        with Database.Session() as s:
-            return s.query(Edge)
+    # The following functions validate input, add nodes to the network, and
+    # make an edge with the host.
+    def connect_datapoint(self, session, record):
+        session.add(Database.Edge(node1=self._record, node2=record))
+    # Takes a string, validates, adds it to network, makes an edge with host.
+    def add_ip(self, ip):
+        # Validate
+        ip = str(Ip(ip))
+        # Add to network
+        s = Database.Session()
+        ip = Database.Node(value=ip, nodetype='ip')
+        s.add(ip)
+        self.connect_datapoint(s, ip)
+        s.commit()
+        s.close()
+    # Takes a string, validates, adds it to network, makes an edge with host.
+    def add_mac(self, mac):
+        # Validate
+        mac str(Mac(mac))
+        s = Database.Session()
+        mac = Database.Node(value=mac, nodetype='mac')
+        s.add(mac)
+        self.connect_datapoint(s, mac)
+        s.commit()
+        s.close()
 
-class Network(Graph):
-    def hosts():
-        return self.nodes(nodetype='Host')
+class Ip(str):
+    def __new__(cls, address, encoding=None):
+        # Figure out what we're being passed, convert anything to strings.
+        if not encoding:
+            # For just strings
+            pass
+        elif encoding == 'snmp':
+            # Returns from SNMP come with a leading immaterial number.
+            print('Pre-encoded:', address)
+            address = '.'.join(address.split('.')[-4:])
+            print('Post-encoded:', address)
+        else:
+            # Means invalid encoding passed.
+            raise Exception('Improper encoding passed with IP address')
+        # Now validate!
+        cls.octets(address)
+        return super(Ip, cls).__new__(cls, address)
 
-class Network(nx.Graph):
+    def octets(address):
+        try:
+            # Split the address into its four octets
+            octets = address.split('.')
+            octets = [int(b) for b in octets]
+            # Throw out anything that isn't a correct octet.
+            ipBytes = [b for b in octets if 0 <= b < 256]
+            ipStr = '.'.join([str(b) for b in ipBytes])
+            # Make sure that it has four octets, and that we haven't lost anything.
+            if len(ipBytes) != 4 or ipStr != address:
+                raise InputError('Improper string', address, ' submitted for IP address')
+        except ValueError:
+            raise InputError('Not an IP address:' + str(address))
+        # Sound like everything's fine!
+        return octets
+
+    @property
+    def local(self):
+        if self.startswith('127.'):
+            return True
+        return False
+
+    # Enough validation... on to things you can do with it.
+    def scan(self):
+        # Start by pinging it. Pings are good.
+        # Pings require suid, so we have to use subprocess to invoke the bin.
+        pingable = 1
+        while not pingable == 0:
+            # Goes three times on failures, stops if return 0.
+            a = subprocess.call(['ping', '-q', '-c', '1'. '-w', '1', self])
+            pingable = (pingable + a) * a
+            if pingable > 3:
+                return False
+        
+        
+            
+
+class Mac(str):
+    def __new__(cls, mac, encoding=None):
+        # Usually, I'll be passing a string, but not always, so encodings.
+        if not encoding:
+            macstr = mac.lower().replace('-',':')
+        elif encoding == 'utf-16':
+            # The raw data is in hex. Whole nightmare.
+            s = str(hexlify(mac.encode('utf-16')))
+            macstr = ':'.join([s[6:8], s[10:12], s[14:16], s[18:20], s[22:24],
+                s[26:28]]).lower()
+            #print(macstr)
+        else:
+            # Should never happen, means that an unsopported encoding was
+            # specified.
+            raise Exception('Unsupported encoding ' + encoding)
+
+        # Validate!
+        macre = re.compile(r'([a-f0-9]{2}[:]?){6}')
+        if not macre.match(macstr):
+            raise InputError('Not a MAC address:', macstr)
+
+        return super(Mac, cls).__new__(cls, macstr)
+
+    @property
+    def local(self):
+        # Tests if the penultimate bit in the first octet is a one.
+        # Because seriously, why the fuck is that how we determine this?
+        if bin(int(self.__str__().split(':')[0], 16))[-2:-1] == '1':
+            return True
+        return False
+    
+    @property
+    def vendor(self):
+        macvendors = {  'f0:9f:c2':'ubiquiti',
+                        'dc:9f:db':'ubiquiti',
+                        '80:2a:a8':'ubiquiti',
+                        '68:72:51':'ubiquiti',
+                        '44:d9:e7':'ubiquiti',
+                        '24:a4:3c':'ubiquiti',
+                        '04:18:d6':'ubiquiti',
+                        '00:27:22':'ubiquiti',
+                        '00:15:6d':'ubiquiti',
+                        }
+        try:
+            return macvendors[self[0:8]] 
+        except KeyError:
+            return None
+        
+class network(nx.graph):
     def configure(self, config):
-        # Community strings for SNMP
+        # community strings for snmp
         self.communities = config['network']['communities']
         # Subnets that shouldn't be scanned.
         self.inaccessiblenets = config['network']['inaccessiblenets']

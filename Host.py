@@ -13,68 +13,48 @@ import uuid
 import geocoder
 
 import Database
+from Network import Network
 
 # Disable security warnings.
 from requests.packages.urllib3.exceptions import InsecureRequestWarning
 requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
 
-class Host(Database.Node):
+# Abstraction layer on top of actual database record.
+class Host:
+    # Takes the record to start. Everything else is based around that.
+    def __init__(self, nodeid, network):
+        self.nodeid = nodeid
+        self.network = network
     @property
+    def _record(self):
+        s = Database.Session()
+        record = s.query(Node).filter(node.nodeid == self.nodeid).one()
+        s.close()
+        return record
+
+    @property # Direct access to the records
+    def iprs(self):
+        return self._record.typedneighbors('ip')
+    @property # List of strings
     def ips(self):
-        return self.typedneighbors('ip')
-    @property
+        return [ipr.value for ipr in self.iprs]
+    @property # Direct access to the records
+    def macrs(self):
+        return self._record.typedneighbors('mac')
+    @property # List of strings
     def macs(self):
-        return self.typedneighbors('mac')
+        return [macr.value for macr in self.macs]
+
     @property
     def hostname(self):
-        return self.attr('hostname')
-    @property
-    def mgmntip(self):
-        for ip in self.ips:
-            if ip.mgmnt:
-                return ip
-        return None
+        return self._record.value
     @property
     def community(self):
-        return self.attr('community')
+        return self._record.attr('community')
     @community.setter
     def community(self, community):
-        # If there is already a community, and it's different, overwrite it.
-        if self.community and self.community.value != community:
-            with Database.Session() as s:
-                self.community.value = community
-                s.add(self.community)
-                s.commit()
-        else:
-            attr = Database.Attribute(key='community', value=community)
-            with Database.Session() as s:
-                
-                
-        
-            
-        attr = Database.Attribute(key='community', value=community)
-        self.attributes.append(attr)
-
-
-
-
-    @property
-    def hostname(self):
-        try:
-            return self.network.node[self]['hostname']
-        except KeyError:
-            return None
-    @hostname.setter
-    def hostname(self, hostname):
-        self.network.node[self]['hostname'] = hostname
-
-    @property
-    def updated(self):
-        return self.network.node[self]['updated']
-    def touch(self):
-        # Update timestamp on host.
-        self.network.node[self]['updated'] = Toolbox.timestamp()
-
+        self._record.setAttr('community', community)
+    '''
     @property
     def vendor(self):
         # Take the first recognizable MAC vendor we find.
@@ -82,14 +62,14 @@ class Host(Database.Node):
             if mac.vendor:
                 return mac.vendor
         return None
-
+    
     @property
     def location(self):
         try:
             return self.network.node[self]['location']
         except KeyError:
             return None
-
+    
     @property
     def coords(self):
         # Geocoords lookup to get address for host.
@@ -141,7 +121,7 @@ class Host(Database.Node):
                         if 'ifnum' in self.network.node[a] and \
                                 self.network.node[a]['ifnum'] == ifnum:
                             self.network.add_edge(address, a, etype='interface')
-
+    '''
     def snmpInit(self, ip, community):
         print(ip, community)
         session = easysnmp.Session(hostname=ip, community=community, version=1, timeout=1)
