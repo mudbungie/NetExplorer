@@ -1,19 +1,20 @@
 # Class for a network object. 
 
-from NetworkPrimitives import Ip, Mac
-from Config import config
-from Exceptions import *
-import Toolbox
-import easysnmp
+#from NetworkPrimitives import Ip, Mac
+#from Config import config
+#from Exceptions import *
+#import Toolbox
+#import easysnmp
 import requests
-import json
-import time
-from datetime import datetime
-import uuid
-import geocoder
+#import json
+#import time
+#from datetime import datetime
+#import uuid
+#import geocoder
+import sqlalchemy as sqla
 
 import Database
-from Network import Network
+#from Network import Network
 
 # Disable security warnings.
 from requests.packages.urllib3.exceptions import InsecureRequestWarning
@@ -22,16 +23,24 @@ requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
 # Abstraction layer on top of actual database record.
 class Host:
     # Takes the record to start. Everything else is based around that.
-    def __init__(self, nodeid, network):
-        self.nodeid = nodeid
-        self.network = network
+    def __init__(self, node_id=False):
+        if node_id:  # If we're creating an object from existing data.
+            self.node_id = node_id
+        else:       # If this is a new host. 
+            node = Database.Node(nodetype='Host')
+            s = Database.Session()
+            s.add(node)
+            s.commit()
+            self.node_id = node.node_id
+            s.close()
+
     @property
     def _record(self):
         s = Database.Session()
-        record = s.query(Node).filter(node.nodeid == self.nodeid).one()
+        record = s.query(Node).filter(node.node_id == self.node_id).one()
         s.close()
         return record
-
+    
     @property # Direct access to the records
     def iprs(self):
         return self._record.typedneighbors('ip')
@@ -54,7 +63,45 @@ class Host:
     @community.setter
     def community(self, community):
         self._record.setAttr('community', community)
+
+    def add_ip(ip):
+        # We explicitly only take Ip objects that have been introduced to the
+        # network.
+        if type(ip) != NetworkPrimitives.Ip:
+            raise TypeError('Ip objects should have a record.')
+        if ip.local:    # Boolean to determine loopback addresses.
+            raise TypeError('Loopback address. Don\'t add loopback addresses.')
+        if ip not in self.ips:
+            s = Database.Session()
+            q = s.query(Edge).filter(sqla.and_(node1_id == self.node_id, 
+                node1_id == ip.node_id))
+            if q.count() != 0: # In case this connection is already known.
+                edge = Database.Edge(node1_id = self.node_id,
+                    node2_id = ip.node_id)
+                s.add(edge)
+                s.commit()
+            s.close()
+        # If it was passed up for some reason, return False
+        return False
+
     '''
+    def addAddress(self, address, ifnum=None):
+        # Add an IP or MAC address.
+        if not address.local:
+            if address in self.addresses:
+                # Add the ifnum, in case it's not there.
+                self.network.node[address]['ifnum'] = ifnum
+            else:
+                # This is a new mac, or at least not attached to this host.
+                self.network.removeSafely(address)
+                self.network.add_node(address, ifnum=ifnum)
+                self.network.add_edge(self, address, etype='owns')
+                # Associate it with any similarly-numbered IPs.
+                if ifnum:
+                    for a in self.addresses:
+                        if 'ifnum' in self.network.node[a] and \
+                                self.network.node[a]['ifnum'] == ifnum:
+                            self.network.add_edge(address, a, etype='interface')
     @property
     def vendor(self):
         # Take the first recognizable MAC vendor we find.
@@ -104,24 +151,7 @@ class Host:
         else:
             self.network[self][ip]['mgmnt'] = 0
 
-    def addAddress(self, address, ifnum=None):
-        # Add an IP or MAC address.
-        if not address.local:
-            if address in self.addresses:
-                # Add the ifnum, in case it's not there.
-                self.network.node[address]['ifnum'] = ifnum
-            else:
-                # This is a new mac, or at least not attached to this host.
-                self.network.removeSafely(address)
-                self.network.add_node(address, ifnum=ifnum)
-                self.network.add_edge(self, address, etype='owns')
-                # Associate it with any similarly-numbered IPs.
-                if ifnum:
-                    for a in self.addresses:
-                        if 'ifnum' in self.network.node[a] and \
-                                self.network.node[a]['ifnum'] == ifnum:
-                            self.network.add_edge(address, a, etype='interface')
-    '''
+
     def snmpInit(self, ip, community):
         print(ip, community)
         session = easysnmp.Session(hostname=ip, community=community, version=1, timeout=1)
@@ -458,3 +488,8 @@ class BridgedInterface(Interface):
     @property
     def mac():
         raise AttributeError('BridgedInterfaces have macs, not mac.')
+
+    '''
+if __name__ == '__main__':
+    host0 = Host()
+    

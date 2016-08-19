@@ -1,1 +1,10 @@
 requires libsnmp-dev, snmp-mibs-downloader 
+
+Okay, so this is going to scan all the routers in a list of routers...
+    # Idea: obtain routers from bgp
+It gets the ARP tables from each of these routers.
+    # These should be very similar.
+    # Ignore locally-administered MAC addresses!
+Determine which of these are access points
+    # Stop here, get this done.
+
