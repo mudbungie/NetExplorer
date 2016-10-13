@@ -13,14 +13,18 @@ from Toolbox import diagprint
 
 #FIXME do all list comprehensions with generators, dummy.
 
-test = True
-if test:
-    engine = create_engine('sqlite:///nxtest.sqlite')
-else:
-    engine = create_engine('sqlite:///netexplorer.sqlite')
+def initDb(test=False):
+    if test:
+        sqlitepath = 'sqlite:///nxtest.sqlite'
+    else:
+        sqlitepath = 'sqlite:///netexplorer.sqlite'
+    engine = create_engine(sqlitepath)
+    Session = sessionmaker(bind=engine)
+    return Session
+
 meta = MetaData()
 Base = declarative_base(metadata=meta)
-Session = sessionmaker(bind=engine)
+#Session = initDb()
 
 class Node(Base):
     # A node from the network. Can be any piece of information.

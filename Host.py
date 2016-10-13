@@ -21,8 +21,14 @@ from requests.packages.urllib3.exceptions import InsecureRequestWarning
 requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
 
 # Abstraction layer on top of actual database record.
-class Host:
+class Host(Database.Node):
     # Takes the record to start. Everything else is based around that.
+    def __init__(self):
+        self.nodetype = 'Host'
+        s = Database.Session()
+        s.add(self)
+        s.commit()
+        s.close()
     def __init__(self, node_id=False):
         if node_id:  # If we're creating an object from existing data.
             self.node_id = node_id
@@ -34,6 +40,8 @@ class Host:
             self.node_id = node.node_id
             s.close()
 
+    '''
+
     @property
     def _record(self):
         s = Database.Session()
@@ -43,20 +51,20 @@ class Host:
     
     @property # Direct access to the records
     def iprs(self):
-        return self._record.typedneighbors('ip')
+        return self.typedneighbors('ip')
     @property # List of strings
     def ips(self):
         return [ipr.value for ipr in self.iprs]
     @property # Direct access to the records
     def macrs(self):
-        return self._record.typedneighbors('mac')
+        return self.typedneighbors('mac')
     @property # List of strings
     def macs(self):
         return [macr.value for macr in self.macs]
 
     @property
     def hostname(self):
-        return self._record.value
+        return self.value
     @property
     def community(self):
         return self._record.attr('community')
@@ -84,7 +92,6 @@ class Host:
         # If it was passed up for some reason, return False
         return False
 
-    '''
     def addAddress(self, address, ifnum=None):
         # Add an IP or MAC address.
         if not address.local:
